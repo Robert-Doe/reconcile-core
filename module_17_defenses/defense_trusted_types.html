@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 17 — Trusted Types</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_17_defenses/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_17_defenses/defense_csp.html">◂ CSP</a>
+  <a href="../module_17_defenses/defense_sanitizer_compare.html">Sanitizers ▸</a>
+</nav>
+
+<p class="kicker">Module 17 · Defense</p>
+<h1>Trusted Types <span class="badge defense">defense</span></h1>
+<p class="lead">Trusted Types make the dangerous DOM sinks (mechanism 4) refuse
+plain strings. Instead of hoping every <code>innerHTML</code> is safe, the browser
+<em>enforces</em> that only values produced by a vetted policy can reach a sink —
+turning "did we sanitize everywhere?" into a guarantee.</p>
+
+<h2>The idea</h2>
+<p>Enabled via CSP (<code>require-trusted-types-for 'script'</code>), Trusted
+Types changes the type contract of injection sinks:</p>
+<pre><code>// Without Trusted Types:
+el.innerHTML = anyString;            // runs whatever HTML the string contains
+
+// With Trusted Types enforced:
+el.innerHTML = anyString;            // THROWS TypeError — strings are rejected
+el.innerHTML = policy.createHTML(s); // only a TrustedHTML object is accepted</code></pre>
+<p>You define a <strong>policy</strong> — a single, auditable chokepoint — that
+decides how to turn a string into a <code>TrustedHTML</code>/<code>TrustedScript</code>/<code>TrustedScriptURL</code>.
+Every sink assignment must go through a policy, so all HTML-to-DOM flow is funneled
+through code you control and review.</p>
+
+<h2>Which sinks it covers</h2>
+<table>
+<thead><tr><th>Trusted type</th><th>Guards sinks like</th></tr></thead>
+<tbody>
+<tr><td><code>TrustedHTML</code></td><td><code>innerHTML</code>, <code>outerHTML</code>, <code>insertAdjacentHTML</code>, <code>iframe.srcdoc</code>, <code>DOMParser</code> (opt), <code>document.write</code></td></tr>
+<tr><td><code>TrustedScript</code></td><td><code>eval</code>, <code>new Function</code>, inline <code>&lt;script&gt;</code> text, <code>setTimeout('str')</code></td></tr>
+<tr><td><code>TrustedScriptURL</code></td><td><code>script.src</code>, <code>worker</code> URLs, <code>import()</code></td></tr>
+</tbody>
+</table>
+<p>This is why Trusted Types <strong>categorically closes mechanism 4</strong>
+(and the JS-execution parts of others): a source that reaches a sink without going
+through a policy simply throws, no matter how it's spelled (defeating Module 12's
+obfuscation and Module 14's prototype-pollution gadget — a polluted string still
+isn't a <code>TrustedHTML</code>).</p>
+
+<h2>Live demo (Chromium-based browsers)</h2>
+<p>The button builds a <strong>separate document</strong> (in a sandboxed iframe)
+that enforces Trusted Types via a meta CSP, then tries two things: assigning a raw
+string to <code>innerHTML</code> (should throw) and assigning via a policy (should
+work). Results are reported back below. Non-Chromium browsers will report that TT
+is unavailable — itself an important deployment caveat.</p>
+<p><button id="run" class="run">run the Trusted Types demo</button></p>
+<iframe class="demo-frame" id="ttframe" title="trusted types demo" style="height:200px"></iframe>
+<div class="card"><strong>Report:</strong> <pre id="report">—</pre></div>
+
+<h2>Wiring a framework through Trusted Types</h2>
+<p>Frameworks have escape hatches that bypass their own encoding —
+React's <code>dangerouslySetInnerHTML</code>, Angular's <code>bypassSecurityTrust*</code>,
+Vue's <code>v-html</code>. Under enforced Trusted Types those hatches must yield a
+<code>TrustedHTML</code>, so your policy (e.g. one that runs DOMPurify) becomes the
+mandatory chokepoint even for the escape hatch:</p>
+<pre><code>const policy = trustedTypes.createPolicy('app-html', {
+  createHTML: (s) =&gt; DOMPurify.sanitize(s, {RETURN_TRUSTED_TYPE: true})
+});
+// Now the ONLY way to get HTML into a sink is through DOMPurify. A missed
+// sanitize call fails closed (throws) instead of failing open (XSS).</code></pre>
+
+<h2>Strengths &amp; limits</h2>
+<div class="card">
+<ul>
+<li><strong>Fails closed:</strong> a forgotten sanitize call throws instead of
+executing — the opposite of encoding, which fails open.</li>
+<li><strong>One audit surface:</strong> review the policies, not every sink.</li>
+<li><strong>Limit:</strong> browser support is Chromium-centric today, so treat it
+as defense-in-depth atop encoding + CSP, not a sole control.</li>
+<li><strong>Limit:</strong> it guards <em>DOM sinks</em>; it does not by itself fix
+server-side reflected HTML (mechanism 1 in the initial response) — that still needs
+output encoding / CSP.</li>
+</ul>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Why does Trusted Types "fail closed," and why is that better than encoding's
+"fail open"?</li>
+<li>How does routing <code>dangerouslySetInnerHTML</code> through a TT policy make
+a forgotten sanitize call safe?</li>
+<li>Which mechanism does Trusted Types <em>not</em> address on its own?</li>
+</ol>
+</div>
+
+<footer>
+Module 17 · <a href="../module_17_defenses/defense_sanitizer_compare.html">Next: Sanitizer comparison ▸</a>
+</footer>
+
+<script>
+document.getElementById('run').addEventListener('click', function () {
+  // Build a self-contained document that ENFORCES Trusted Types, runs the two
+  // experiments, and posts results back to us. Kept in an iframe so enforcing TT
+  // doesn't affect this tutorial page.
+  const child = `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="require-trusted-types-for 'script'; trusted-types demo default">
+</head><body><div id="t"></div><script>
+(function(){
+  var out = {supported: !!window.trustedTypes};
+  var el = document.getElementById('t');
+  // 1) raw string to innerHTML -> should THROW under enforcement
+  try { el.innerHTML = '<img src=x onerror=alert(1)>'; out.rawString = 'NO THROW (unexpected / unsupported)'; }
+  catch (e) { out.rawString = 'THREW: ' + e.name; }
+  // 2) via a policy -> should WORK (and here we sanitize by stripping tags)
+  try {
+    var p = window.trustedTypes.createPolicy('demo', {
+      createHTML: function(s){ return s.replace(/</g,'&lt;'); }  // trivial sanitize
+    });
+    el.innerHTML = p.createHTML('<img src=x onerror=alert(1)> now inert');
+    out.viaPolicy = 'OK (policy-produced TrustedHTML accepted)';
+  } catch (e) { out.viaPolicy = 'ERROR: ' + e.name; }
+  parent.postMessage(JSON.stringify(out), '*');
+})();
+<\/script></body></html>`;
+  const f = document.getElementById('ttframe');
+  f.setAttribute('sandbox', 'allow-scripts');
+  f.srcdoc = child;
+});
+window.addEventListener('message', function (e) {
+  try {
+    const r = JSON.parse(e.data);
+    document.getElementById('report').textContent =
+      'Trusted Types supported: ' + r.supported + '\n' +
+      'Raw string -> innerHTML:  ' + r.rawString + '\n' +
+      'Via policy -> innerHTML:  ' + r.viaPolicy + '\n\n' +
+      (r.supported
+        ? 'Note: the raw-string assignment THREW — that is Trusted Types closing mechanism 4.'
+        : 'Your browser lacks Trusted Types (likely non-Chromium). Deploy TT as defense-in-depth, not a sole control.');
+  } catch (_) {}
+});
+</script>
+</body>
+</html>

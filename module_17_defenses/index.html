@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 17 — Defenses</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_17_defenses/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_16_cases/">◂ Module 16</a>
+  <a href="../module_18_threatmodel/">Module 18 ▸</a>
+</nav>
+
+<p class="kicker">Module 17 · the toolbox</p>
+<h1>Defenses: Encoding, CSP, Trusted Types, Sanitizers <span class="badge defense">defense</span></h1>
+<p class="lead">Each defense targets specific mechanisms. None covers all five
+alone. This module maps every control to what it stops and what bypasses it — the
+raw material for your Module 18 gap analysis.</p>
+
+<h2>The four pillars</h2>
+<table>
+<thead><tr><th>Defense</th><th>Primary mechanism(s) closed</th><th>Page</th></tr></thead>
+<tbody>
+<tr><td><strong>Contextual output encoding</strong></td><td>1 (tag), 2 (attr handlers), 3 (URL), 5 (escape)</td><td>server: <code>/defense/encoders</code>, <code>/defense/context</code></td></tr>
+<tr><td><strong>Content Security Policy</strong></td><td>1, 2, 3 (blocks execution/inline/scheme); limits exfil</td><td><a href="../module_17_defenses/defense_csp.html">defense_csp.html</a></td></tr>
+<tr><td><strong>Trusted Types</strong></td><td>4 (DOM sinks) — decisively</td><td><a href="../module_17_defenses/defense_trusted_types.html">defense_trusted_types.html</a></td></tr>
+<tr><td><strong>HTML sanitizers</strong></td><td>1, 2, 3 in rich-HTML contexts (5 if mutation-aware)</td><td><a href="../module_17_defenses/defense_sanitizer_compare.html">defense_sanitizer_compare.html</a></td></tr>
+</tbody>
+</table>
+
+<h2>A/B the defenses against earlier attacks</h2>
+<div class="card">
+<p><strong>Encoding:</strong> see one input encoded five ways →
+<a href="http://localhost:5000/defense/encoders?q=%22%3E%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E" target="_blank" rel="noopener">/defense/encoders</a>. Then try to break the attribute encoder →
+<a href="http://localhost:5000/defense/context?ctx=html_attr&q=%22%20onmouseover%3Dalert(1)" target="_blank" rel="noopener">/defense/context?ctx=html_attr</a>.</p>
+<p><strong>CSP:</strong> the injection still lands in the HTML, but execution is
+blocked. Compare policies:
+<a href="http://localhost:5000/defense/csp-search?policy=none&q=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E" target="_blank" rel="noopener">none</a> ·
+<a href="http://localhost:5000/defense/csp-search?policy=loose&q=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E" target="_blank" rel="noopener">loose</a> ·
+<a href="http://localhost:5000/defense/csp-search?policy=strict&q=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E" target="_blank" rel="noopener">strict</a>
+(open DevTools console to see the violation).</p>
+</div>
+
+<h2>The defender's rule of layering</h2>
+<div class="card safe">
+<ol>
+<li><strong>Encode by context, always</strong> — the baseline that closes most
+mechanisms at the source of output.</li>
+<li><strong>Add a strict, nonce-based CSP</strong> — a capability net that catches
+what encoding misses and constrains exfiltration.</li>
+<li><strong>Enforce Trusted Types</strong> — closes DOM sinks (mechanism 4)
+categorically, including framework escape hatches.</li>
+<li><strong>Sanitize rich HTML with a maintained, mutation-aware library</strong>
+— only where you truly must accept HTML.</li>
+</ol>
+<p>No single layer is complete; the <em>combination</em> is what turns "we tried
+to filter bad strings" into "execution is structurally prevented."</p>
+</div>
+
+<footer>
+Module 17 of 19 · <a href="../module_18_threatmodel/">Next: Threat Model &amp; Your Intervention ▸</a>
+</footer>
+</body>
+</html>

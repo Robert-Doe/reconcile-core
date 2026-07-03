@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 17 — Sanitizer Comparison</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_17_defenses/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_17_defenses/defense_trusted_types.html">◂ Trusted Types</a>
+  <a href="../module_18_threatmodel/">Module 18 ▸</a>
+</nav>
+
+<p class="kicker">Module 17 · Defense</p>
+<h1>Sanitizers: Compare &amp; Contrast <span class="badge defense">defense</span></h1>
+<p class="lead">When you genuinely must accept rich HTML (comments, wiki, email),
+you need a sanitizer. This page runs the same payloads through four strategies and
+shows which leave a live event handler — the difference between structural safety
+and hope.</p>
+
+<h2>The four strategies</h2>
+<table>
+<thead><tr><th>Strategy</th><th>What it is</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td><code>textContent</code></td><td>Don't parse HTML at all; insert as text</td><td>Safest. Use whenever you don't actually need markup.</td></tr>
+<tr><td>Naive DOM sanitizer</td><td>Module 13's parse→strip→serialize</td><td>Unsound (mXSS). Educational only.</td></tr>
+<tr><td>Native Sanitizer API</td><td><code>Element.setHTML()</code> / <code>Sanitizer</code></td><td>Browser-built, mutation-aware where supported.</td></tr>
+<tr><td>DOMPurify</td><td>Maintained library, the de-facto standard</td><td>Recommended; keep updated; configure carefully.</td></tr>
+</tbody>
+</table>
+
+<h2>Run the comparison</h2>
+<p>Analysis only — results report whether a <em>live handler</em> survives; nothing
+executes.</p>
+<div class="payload">
+  <input id="in" value='<a href="javascript:alert(1)">x</a><img src=y onerror=alert(1)><b>ok</b>'>
+  <button id="run" class="run">compare</button>
+</div>
+<div class="payload">
+  <button class="copy2" data-v='<svg><script>alert(1)</script></svg>'>svg/script</button>
+  <button class="copy2" data-v='<noscript><p title="</noscript><img src=x onerror=alert(1)>">'>noscript mXSS</button>
+  <button class="copy2" data-v='<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>'>mathml mXSS</button>
+  <button class="copy2" data-v='<div onclick=alert(1)>hi</div>'>onclick</button>
+</div>
+<table id="out">
+<thead><tr><th>Strategy</th><th>Output (truncated)</th><th>Live handler?</th><th>javascript: URL?</th></tr></thead>
+<tbody></tbody>
+</table>
+<p id="dpstate" class="lead"></p>
+
+<h2>Why <code>textContent</code> wins when you can use it</h2>
+<p>Most "HTML" inserted into pages is actually just text that a developer reached
+for <code>innerHTML</code> to place. If you don't need tags, <code>textContent</code>
+(or <code>createTextNode</code>) makes injection impossible — there is no parse, so
+mechanisms 1/2/5 cannot fire. <strong>The best sanitizer is not needing one.</strong></p>
+
+<h2>Choosing and configuring a real sanitizer</h2>
+<div class="card safe">
+<ul>
+<li><strong>Prefer DOMPurify or the native Sanitizer API</strong> — both operate on
+the DOM and are mutation-aware, unlike string/regex approaches.</li>
+<li><strong>Allowlist, don't denylist</strong>, tags and attributes. Default-deny
+everything; permit a small known-safe set.</li>
+<li><strong>Handle namespaces</strong> (SVG/MathML) explicitly or disallow them
+(Module 07).</li>
+<li><strong>Keep it updated</strong> — mXSS gadgets are found and patched
+continually (Module 13).</li>
+<li><strong>Return Trusted Types</strong> (<code>RETURN_TRUSTED_TYPE: true</code>)
+and enforce TT so a missed call fails closed (previous page).</li>
+<li><strong>Sanitize at the sink, for the sink's context</strong> — not once at
+input (Module 10).</li>
+</ul>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Given a comment feature that only needs bold/italic/links, what is the safest
+implementation and why?</li>
+<li>Why do the naive sanitizer and the maintained sanitizers diverge on the
+mXSS payloads?</li>
+<li>How do you make a sanitizer "fail closed" so a forgotten call can't cause
+XSS?</li>
+</ol>
+</div>
+
+<footer>
+Module 17 · <a href="../module_18_threatmodel/">Continue: Threat Model &amp; Intervention ▸</a><br>
+DOMPurify is loaded from a CDN if you're online; otherwise its row shows "unavailable."
+</footer>
+
+<script src="../module_13_mxss/naive_sanitizer.js"></script>
+<!-- DOMPurify from CDN; page still works (with DOMPurify row disabled) if offline -->
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"
+        onerror="window.__noDOMPurify=1"></script>
+<script src="../assets/lab.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const N = window.NaiveSanitizer;
+
+  function hasHandler(html) {
+    const t = document.createElement('template'); t.innerHTML = html;
+    return [...t.content.querySelectorAll('*')].some(el =>
+      [...el.attributes].some(a => a.name.toLowerCase().startsWith('on')));
+  }
+  function hasJsUrl(html) {
+    const t = document.createElement('template'); t.innerHTML = html;
+    return [...t.content.querySelectorAll('[href],[src],[xlink\\:href]')].some(el => {
+      const v = (el.getAttribute('href')||el.getAttribute('src')||'').replace(/\s/g,'').toLowerCase();
+      return v.startsWith('javascript:');
+    });
+  }
+  function trunc(s){ return s.length>70 ? s.slice(0,70)+'…' : s; }
+
+  function strategies(input) {
+    const rows = [];
+    // 1) textContent
+    const tc = document.createElement('div'); tc.textContent = input;
+    rows.push(['textContent', tc.innerHTML]);
+    // 2) naive DOM sanitizer (M13)
+    rows.push(['naive DOM sanitizer', N.naiveDomSanitize(input)]);
+    // 3) native Sanitizer API (setHTML), if available
+    if (typeof Element.prototype.setHTML === 'function') {
+      const d = document.createElement('div');
+      try { d.setHTML(input); rows.push(['native Sanitizer (setHTML)', d.innerHTML]); }
+      catch(e){ rows.push(['native Sanitizer (setHTML)', '(error: '+e.name+')']); }
+    } else {
+      rows.push(['native Sanitizer (setHTML)', '(unavailable in this browser)']);
+    }
+    // 4) DOMPurify, if loaded
+    if (!window.__noDOMPurify && window.DOMPurify) {
+      rows.push(['DOMPurify', DOMPurify.sanitize(input)]);
+    } else {
+      rows.push(['DOMPurify', '(unavailable — offline or blocked)']);
+    }
+    return rows;
+  }
+
+  function run() {
+    const input = $('in').value;
+    const body = $('out').querySelector('tbody') || $('out').appendChild(document.createElement('tbody'));
+    body.innerHTML = '';
+    for (const [name, output] of strategies(input)) {
+      const unavailable = /unavailable|error/.test(output);
+      const h = unavailable ? '—' : String(hasHandler(output));
+      const j = unavailable ? '—' : String(hasJsUrl(output));
+      const tr = document.createElement('tr');
+      const danger = (h === 'true' || j === 'true');
+      tr.innerHTML =
+        `<td><strong>${name}</strong></td>` +
+        `<td><code>${trunc(output.replace(/[&<]/g, c=>({'&':'&amp;','<':'&lt;'}[c])))}</code></td>` +
+        `<td style="color:${h==='true'?'#c0392b':'#0b6e4f'}">${h}</td>` +
+        `<td style="color:${j==='true'?'#c0392b':'#0b6e4f'}">${j}</td>`;
+      body.appendChild(tr);
+    }
+    $('dpstate').textContent = (window.DOMPurify && !window.__noDOMPurify)
+      ? 'DOMPurify ' + DOMPurify.version + ' loaded.'
+      : 'DOMPurify not loaded (offline?). The other three strategies still run.';
+  }
+
+  $('run').addEventListener('click', run);
+  document.querySelectorAll('.copy2').forEach(b =>
+    b.addEventListener('click', () => { $('in').value = b.getAttribute('data-v'); run(); }));
+  run();
+})();
+</script>
+</body>
+</html>
