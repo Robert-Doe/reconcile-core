@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 03 — The 5 Execution Mechanisms</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_03_taxonomy/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_02_parsing/">◂ Module 02</a>
+  <a href="../module_04_script_injection/">Module 04 ▸</a>
+</nav>
+
+<p class="kicker">Module 03 · The organizing spine</p>
+<h1>The 5 Execution Mechanisms (Master Taxonomy)</h1>
+<p class="lead">Thousands of XSS payloads exist. But every one of them causes
+JavaScript to run through exactly one of <strong>five</strong> underlying
+mechanisms — or a chain of them. Learn these five and the payload zoo becomes a
+finite, defendable space.</p>
+
+<div class="card">
+<strong>Why a defender needs a taxonomy.</strong> You cannot prove a defense
+stops "all payloads" — the payload space is unbounded and adversarial. You
+<em>can</em> argue a defense covers a mechanism. A rigorous defensive claim has
+the form: <em>"This control neutralizes mechanisms 1, 3, and 4; mechanisms 2 and
+5 require these additional controls."</em> That is the shape of your Module 18
+thesis.
+</div>
+
+<h2>The five mechanisms at a glance</h2>
+<table>
+<thead><tr><th>#</th><th>Mechanism</th><th>Essence</th><th>Canonical proof</th></tr></thead>
+<tbody>
+<tr>
+  <td><span class="mechtag m1">1</span></td>
+  <td><strong>Tag parsing</strong></td>
+  <td>The parser creates a script-capable <em>element</em>.</td>
+  <td><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></td>
+</tr>
+<tr>
+  <td><span class="mechtag m2">2</span></td>
+  <td><strong>Event attributes</strong></td>
+  <td>An <code>on*</code> handler runs JS — no <code>&lt;script&gt;</code> needed.</td>
+  <td><code>&lt;img src=x onerror=alert(1)&gt;</code></td>
+</tr>
+<tr>
+  <td><span class="mechtag m3">3</span></td>
+  <td><strong>URI schemes</strong></td>
+  <td>A code-bearing URL in a navigational sink.</td>
+  <td><code>&lt;a href="javascript:alert(1)"&gt;</code></td>
+</tr>
+<tr>
+  <td><span class="mechtag m4">4</span></td>
+  <td><strong>DOM sinks</strong></td>
+  <td>Client JS routes attacker data into an HTML/JS sink.</td>
+  <td><code>el.innerHTML = location.hash</code></td>
+</tr>
+<tr>
+  <td><span class="mechtag m5">5</span></td>
+  <td><strong>Context escape + reparse</strong></td>
+  <td>Break out of the current context, or exploit a string that <em>mutates</em> on re-parse (mXSS).</td>
+  <td><code>"&gt;&lt;svg onload=alert(1)&gt;</code></td>
+</tr>
+</tbody>
+</table>
+
+<h2>Mechanism 1 — Tag parsing <span class="mechtag m1">create a code element</span></h2>
+<p>The parser encounters markup that instantiates an element the browser will
+execute: <code>&lt;script&gt;</code>, or a <code>&lt;script&gt;</code> living
+inside SVG (<code>&lt;svg&gt;&lt;script&gt;</code>), or an
+<code>&lt;iframe srcdoc&gt;</code> whose decoded document contains one.</p>
+<pre><code>&lt;script&gt;alert(document.domain)&lt;/script&gt;
+&lt;svg&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;/svg&gt;
+&lt;iframe srcdoc="&amp;lt;script&amp;gt;alert(1)&amp;lt;/script&amp;gt;"&gt;&lt;/iframe&gt;</code></pre>
+<p><strong>What stops it:</strong> contextual HTML encoding (so
+<code>&lt;</code> never starts a tag), or a CSP <code>script-src</code> that
+forbids inline script. <strong>What it targets:</strong> the tokenizer's Data →
+Tag-open transition (Module 02).</p>
+
+<h2>Mechanism 2 — Event attributes <span class="mechtag m2">no &lt;script&gt; required</span></h2>
+<p>There are 150+ intrinsic event attributes. Any element carrying one runs JS
+when that event fires — and some events (<code>onerror</code> on a broken image,
+<code>onload</code> on <code>&lt;svg&gt;</code>, <code>onfocus</code> with
+<code>autofocus</code>) fire with <em>zero</em> user interaction.</p>
+<pre><code>&lt;img src=x onerror=alert(1)&gt;
+&lt;svg onload=alert(1)&gt;
+&lt;input autofocus onfocus=alert(1)&gt;
+&lt;body onpageshow=alert(1)&gt;</code></pre>
+<p><strong>This is why "block <code>&lt;script&gt;</code>" is not a defense.</strong>
+It closes mechanism 1 and leaves mechanism 2 wide open. Module 05 is entirely
+this mechanism.</p>
+
+<h2>Mechanism 3 — URI schemes <span class="mechtag m3">code as a URL</span></h2>
+<p>Certain sinks navigate to a URL. If the URL's scheme is
+<code>javascript:</code>, the "navigation" executes code; if it is
+<code>data:text/html</code>, the browser renders an attacker-authored document.
+Sinks include <code>href</code>, <code>src</code>, <code>action</code>,
+<code>formaction</code>, <code>xlink:href</code>, and JS APIs like
+<code>location.href=</code> and <code>window.open()</code>.</p>
+<pre><code>&lt;a href="javascript:alert(1)"&gt;click&lt;/a&gt;
+&lt;iframe src="data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;"&gt;
+&lt;form&gt;&lt;button formaction="javascript:alert(1)"&gt;go</code></pre>
+<p><strong>What stops it:</strong> scheme allowlisting (<em>after</em> entity
+decoding — see Module 02 case 5) and CSP. Module 06 is this mechanism.</p>
+
+<h2>Mechanism 4 — DOM sinks <span class="mechtag m4">client-side taint flow</span></h2>
+<p>Here the <em>server never sees the payload</em>. Client JavaScript reads a
+<strong>source</strong> it does not control (<code>location.hash</code>,
+<code>location.search</code>, <code>postMessage</code> data,
+<code>document.referrer</code>) and passes it to a <strong>sink</strong> that
+interprets strings as code or markup.</p>
+<table>
+<thead><tr><th>Sink</th><th>Interprets input as</th></tr></thead>
+<tbody>
+<tr><td><code>el.innerHTML =</code>, <code>outerHTML</code>, <code>insertAdjacentHTML()</code></td><td>HTML</td></tr>
+<tr><td><code>document.write()</code></td><td>HTML (into the parser stream)</td></tr>
+<tr><td><code>eval()</code>, <code>new Function()</code>, <code>setTimeout(str)</code></td><td>JavaScript</td></tr>
+<tr><td><code>el.setAttribute('href', x)</code>, <code>location =</code></td><td>URL (feeds mechanism 3)</td></tr>
+<tr><td><code>el.srcdoc =</code>, <code>iframe.src =</code></td><td>HTML / URL</td></tr>
+</tbody>
+</table>
+<pre><code>// Textbook DOM XSS: source = location.hash, sink = innerHTML
+document.getElementById('out').innerHTML = decodeURIComponent(location.hash.slice(1));
+// visit  page.html#&lt;img src=x onerror=alert(1)&gt;</code></pre>
+<p><strong>What stops it:</strong> Trusted Types (forces sinks to accept only
+vetted typed objects), safe sink choice (<code>textContent</code> not
+<code>innerHTML</code>). Module 09 is this mechanism.</p>
+
+<h2>Mechanism 5 — Context escape + reparse <span class="mechtag m5">the subtle one</span></h2>
+<p>Two related ideas:</p>
+<ul>
+<li><strong>Context escape:</strong> your input lands inside some context
+(an attribute value, a JS string). You supply the bytes that <em>end</em> that
+context and start a code-bearing one — the leading <code>"&gt;</code> in
+<code>"&gt;&lt;svg onload=alert(1)&gt;</code> closes an attribute and a tag, then
+opens your own.</li>
+<li><strong>Reparse / mutation (mXSS):</strong> a string that is inert when a
+sanitizer inspects it, but becomes active when the browser <em>re-parses</em> its
+own serialization (Module 02's <em>reserialize(parse(x)) ≠ x</em>). The canonical
+trigger is content that is foster-parented or that changes meaning when moved
+between HTML and foreign (SVG/MathML) contexts.</li>
+</ul>
+<pre><code>"&gt;&lt;svg onload=alert(1)&gt;            &lt;!-- escapes an attribute context --&gt;
+&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;  &lt;!-- escapes a JS string context --&gt;
+&lt;noscript&gt;&lt;p title="&lt;/noscript&gt;&lt;img src=x onerror=alert(1)&gt;"&gt; &lt;!-- mXSS-style reparse --&gt;</code></pre>
+<p><strong>What stops it:</strong> correct <em>contextual</em> encoding for the
+exact context, and DOM-based (tree-level) sanitization that is idempotent under
+re-serialization — string sanitizers structurally cannot guarantee this. Modules
+08 and 13 are this mechanism.</p>
+
+<h2>The defender's mapping table</h2>
+<p>Print this. You will fill in the right two columns across the whole course and
+it becomes your Module 18 gap analysis.</p>
+<table>
+<thead><tr><th>Mechanism</th><th>Primary defense</th><th>Known bypasses / gaps</th></tr></thead>
+<tbody>
+<tr><td>1 Tag parsing</td><td>Contextual HTML encoding; CSP <code>script-src</code></td><td>mXSS reintroduces tags after sanitize; inline-script CSP gaps</td></tr>
+<tr><td>2 Event attributes</td><td>Attribute encoding; disallow <code>on*</code>; CSP (blocks inline handlers)</td><td>150+ handlers; auto-firing events; SVG/MathML handlers</td></tr>
+<tr><td>3 URI schemes</td><td>Scheme allowlist after decode; CSP</td><td>entity-encoded <code>javascript:</code>; <code>data:</code>; redirectors</td></tr>
+<tr><td>4 DOM sinks</td><td>Trusted Types; safe sinks; DOMPurify at the sink</td><td>sink allowlist drift; sanitizer misconfig; mXSS</td></tr>
+<tr><td>5 Escape + reparse</td><td>Contextual encoding; tree-level idempotent sanitizer</td><td>the frontier — this is where a novel defense earns its keep</td></tr>
+</tbody>
+</table>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Classify each into a mechanism: <code>&lt;body onload=alert(1)&gt;</code>;
+<code>location.href='javascript:alert(1)'</code>;
+<code>el.innerHTML=userInput</code>;
+<code>&lt;svg&gt;&lt;script&gt;alert(1)&lt;/script&gt;</code>.</li>
+<li>Why does blocking <code>&lt;script&gt;</code> leave four mechanisms open?</li>
+<li>Which single mechanism does <em>Trusted Types</em> most directly address, and which does it <em>not</em>?</li>
+</ol>
+</div>
+
+<footer>
+Module 03 of 19 · <a href="../module_04_script_injection/">Next: Script Tag Injection ▸</a><br>
+This is the taxonomy every later module references. Keep it close.
+</footer>
+</body>
+</html>
