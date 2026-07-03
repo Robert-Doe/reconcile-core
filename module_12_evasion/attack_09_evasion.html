@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 12 — Filter Evasion & Obfuscation</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_12_evasion/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_11_blind/">◂ Module 11</a>
+  <a href="../module_13_mxss/">Module 13 ▸</a>
+</nav>
+
+<p class="kicker">Module 12 · the case against denylists</p>
+<h1>Filter Evasion &amp; Obfuscation <span class="badge attack">attack</span></h1>
+<p class="lead">This module exists to prove one claim empirically: <strong>string
+/ regex matching on payloads is an unwinnable defense.</strong> The input space
+is adversarial and the browser has a hundred equivalent ways to spell any
+payload.</p>
+
+<h2>The target filter</h2>
+<p>Module 12's <code>/waf-search</code> (<code>waf_sim.py</code>) reflects
+<code>q</code> unencoded, but first blocks this case-insensitive denylist:</p>
+<pre><code>&lt;script     |  &lt;/script  |  onerror  |  javascript:  |  alert</code></pre>
+<p>It looks like it covers "the dangerous stuff." Your task: pop an alert five
+different ways. Each way attacks a different assumption the filter makes.</p>
+
+<h2>Five bypass families (all work against the lab filter)</h2>
+
+<h3>1. Alternate event handler — the denylist is incomplete</h3>
+<p>The filter blocks <code>onerror</code> but there are 150+ handlers (Module 05).
+Use any other one:</p>
+<div class="payload">
+  <input id="p1" value="<svg onload=confirm(document.domain)>">
+  <button class="copy" data-copy="#p1">copy</button>
+</div>
+<p><a href="http://localhost:5000/waf-search?q=%3Csvg%20onload=confirm(document.domain)%3E" target="_blank" rel="noopener">▶ fire it</a> — <code>onload</code> isn't on the list, and <code>confirm</code>
+dodges the <code>alert</code> rule.</p>
+
+<h3>2. Alternate proof function — <code>alert</code> is not special</h3>
+<p><code>confirm()</code>, <code>prompt()</code>, <code>print()</code>, and
+<code>console.log()</code> all prove execution. Blocking one function name is
+theater:</p>
+<div class="payload">
+  <input id="p2" value="<svg onload=prompt(document.domain)>">
+  <button class="copy" data-copy="#p2">copy</button>
+</div>
+
+<h3>3. String reconstruction — defeat substring matching</h3>
+<p>Even if the app blocked <em>every</em> proof name, JS can build the name at
+runtime, so the literal never appears in your input:</p>
+<div class="payload">
+  <input id="p3" value="<svg onload=window['al'+'ert'](document.domain)>">
+  <button class="copy" data-copy="#p3">copy</button>
+</div>
+<p><a href="http://localhost:5000/waf-search?q=%3Csvg%20onload=window%5B'al'%2B'ert'%5D(document.domain)%3E" target="_blank" rel="noopener">▶ fire it</a> — the substring <code>alert</code> is never present; it is
+assembled from <code>'al'+'ert'</code>. Generalizes to
+<code>this['ale'+'rt']</code>, <code>top[/al/.source+'ert']</code>,
+<code>eval(atob('YWxlcnQoMSk='))</code>, etc.</p>
+
+<h3>4. Separator / whitespace tricks — defeat tag-name matching</h3>
+<p>The regex expects <code>onXXX=</code> with normal spacing. The HTML parser
+accepts slashes and assorted whitespace as attribute separators:</p>
+<div class="payload">
+  <input id="p4" value="<svg/onload=confirm(1)>">
+  <button class="copy" data-copy="#p4">copy</button>
+</div>
+<p>and to beat a filter that looked for <code>&lt;script</code>, the parser also
+tolerates <code>&lt;svg&gt;&lt;script&nbsp;&gt;</code>-style spacing, newline/tab
+between <code>&lt;</code> and the tag name, and null bytes in some legacy stacks
+(<code>&lt;scri\0pt&gt;</code>).</p>
+
+<h3>5. Encoding across a decode boundary — the classic mismatch</h3>
+<p>The most important idea: a filter and the browser <strong>decode at different
+times</strong>. If your payload is decoded <em>after</em> the filter runs, the
+filter inspected a harmless-looking string. Examples of decode boundaries:</p>
+<table>
+<thead><tr><th>Encoding</th><th>Decoded by</th><th>Beats a filter that…</th></tr></thead>
+<tbody>
+<tr><td>HTML entities <code>&amp;#x6a;avascript:</code></td><td>the HTML parser, in attribute values</td><td>scanned the raw HTML for <code>javascript:</code></td></tr>
+<tr><td>URL-encoding <code>%3Cscript%3E</code></td><td>the server / browser before your handler</td><td>scanned a value <em>after</em> its own decode (or double-encoding beats a single decode)</td></tr>
+<tr><td>JS unicode <code>alert</code></td><td>the JS engine</td><td>scanned the HTML but the string is built in JS</td></tr>
+<tr><td>Base64 <code>eval(atob('…'))</code></td><td><code>atob</code> at runtime</td><td>looked for any keyword — none appear literally</td></tr>
+</tbody>
+</table>
+<p>For the lab's HTML-context reflection, entity-encoding the scheme is the neat
+demonstration in a <em>URL</em> context (Module 06):
+<code>&lt;a href="javascript&amp;colon;confirm(1)"&gt;</code> — the filter sees
+<code>javascript&colon;</code> (no literal <code>javascript:</code>), the parser
+decodes <code>&amp;colon;</code> back to <code>:</code> and executes.</p>
+
+<h2>The full obfuscation toolbox (reference)</h2>
+<table>
+<thead><tr><th>Technique</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td>Case variation</td><td><code>&lt;ScRiPt&gt;</code> (beats non-case-insensitive filters)</td></tr>
+<tr><td>HTML entity (dec/hex/named)</td><td><code>&amp;#106;</code> <code>&amp;#x6a;</code> <code>&amp;colon;</code></td></tr>
+<tr><td>URL / double-URL encoding</td><td><code>%3C</code>, <code>%253C</code></td></tr>
+<tr><td>Unicode / JS escapes</td><td><code>a</code>, <code>\x61</code>, <code>\141</code></td></tr>
+<tr><td>Base64 + <code>atob</code>/<code>eval</code></td><td><code>eval(atob('YWxlcnQoMSk='))</code></td></tr>
+<tr><td>String concat / bracket access</td><td><code>window['al'+'ert']</code>, <code>self[`alert`]</code></td></tr>
+<tr><td>Template literals / no-paren calls</td><td><code>alert`1`</code>, <code>setTimeout(alert,0,1)</code></td></tr>
+<tr><td>Whitespace / control chars / null</td><td>tab, newline, <code>\0</code>, <code>/</code> as separators</td></tr>
+<tr><td>Comment splitting</td><td><code>&lt;img/**/src=x&gt;</code>, JS <code>al/**/ert</code></td></tr>
+<tr><td>Long-tail handlers &amp; tags</td><td>the 150-event catalog, SVG/MathML (Module 07)</td></tr>
+</tbody>
+</table>
+
+<h2>Why this is the pivotal defensive lesson</h2>
+<div class="card danger">
+<p>Every bypass above exploits the same structural flaw: <strong>the filter and
+the browser disagree about what the string means.</strong> The filter matches
+bytes; the browser <em>parses and decodes</em> them through a stateful,
+multi-context, error-recovering machine (Module 02). You cannot enumerate the
+browser's equivalence classes with a denylist, and each new spec adds more. This
+is <em>the</em> reason serious defenses are:</p>
+<ul>
+<li><strong>Allowlist, not denylist</strong> (permit a tiny known-safe set).</li>
+<li><strong>Contextual output encoding</strong> (make the byte inert for its
+exact context, regardless of how it's spelled).</li>
+<li><strong>Capability-based</strong> (CSP / Trusted Types stop
+<em>execution</em>, so it doesn't matter how cleverly the payload is spelled).</li>
+</ul>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Give five structurally different payloads that pop an alert on
+<code>/waf-search</code>, and name the assumption each breaks.</li>
+<li>Explain "decode boundary" and give one payload that exploits it.</li>
+<li>Why does a capability defense (CSP/Trusted Types) make obfuscation
+irrelevant, while a denylist never can?</li>
+</ol>
+</div>
+
+<footer>
+Module 12 of 19 · <a href="../module_13_mxss/">Next: Mutation XSS ▸</a><br>
+Endpoint: <code>/waf-search</code> (weak denylist) · <code>/waf-info</code>.
+</footer>
+<script src="../assets/lab.js"></script>
+</body>
+</html>
