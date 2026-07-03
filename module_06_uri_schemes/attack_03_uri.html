@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 06 — URI Scheme Injection</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_06_uri_schemes/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_05_event_handlers/">◂ Module 05</a>
+  <a href="../module_07_namespace/">Module 07 ▸</a>
+</nav>
+
+<p class="kicker">Module 06 · <span class="mechtag m3">Mechanism 3: URI schemes</span></p>
+<h1>URI Scheme Injection — <code>javascript:</code> and <code>data:</code> <span class="badge attack">attack</span></h1>
+<p class="lead">Some sinks navigate to a URL. If you control the URL and the app
+trusts its scheme, you don't need angle brackets or event handlers — the
+<em>scheme itself</em> carries the code.</p>
+
+<h2>The two dangerous schemes</h2>
+<table>
+<thead><tr><th>Scheme</th><th>What it does</th><th>Runs in whose origin?</th></tr></thead>
+<tbody>
+<tr><td><code>javascript:</code></td><td>The URL body is executed as JS when the link/navigation activates.</td><td>The <strong>current page's</strong> origin — full XSS.</td></tr>
+<tr><td><code>data:text/html,…</code></td><td>The URL <em>is</em> a document; the browser renders it.</td><td>An <em>opaque</em> origin in modern top-level nav, but dangerous in <code>&lt;iframe&gt;</code>/<code>&lt;object&gt;</code> and older contexts; great for phishing and sandbox escapes.</td></tr>
+</tbody>
+</table>
+
+<h2>The sinks that navigate</h2>
+<p>Any of these can carry a scheme-bearing URL:</p>
+<pre><code>&lt;a href="javascript:alert(document.domain)"&gt;click me&lt;/a&gt;
+&lt;iframe src="javascript:alert(1)"&gt;
+&lt;form action="javascript:alert(1)"&gt;&lt;button&gt;go
+&lt;button formaction="javascript:alert(1)"&gt;
+&lt;svg&gt;&lt;a xlink:href="javascript:alert(1)"&gt;&lt;text&gt;x&lt;/text&gt;&lt;/a&gt;
+&lt;object data="javascript:alert(1)"&gt;
+&lt;iframe src="data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;"&gt;
+// and from JS (this is also Module 09 territory):
+location = 'javascript:alert(1)';        // ignored on assignment in modern browsers
+window.open('javascript:alert(1)');
+el.setAttribute('href','javascript:alert(1)');</code></pre>
+
+<h2>Fire it against the lab redirector</h2>
+<div class="card danger">
+<p>Module 06 adds <code>/go?url=</code> (see <code>vuln_redirect.py</code>) — a
+classic "leaving the site" redirector that reflects <code>url</code> into a link
+<code>href</code> with <strong>no scheme check</strong>.</p>
+<div class="payload">
+  <input id="u1" value="http://localhost:5000/go?url=javascript:alert(document.domain)">
+  <button class="copy" data-copy="#u1">copy</button>
+</div>
+<p><a href="http://localhost:5000/go?url=javascript:alert(document.domain)" target="_blank" rel="noopener">▶ open <code>/go?url=javascript:…</code></a>, then click the destination link → the alert fires in the lab origin.</p>
+<p>Now the hardened version rejects the scheme:
+<a href="http://localhost:5000/go-safe?url=javascript:alert(document.domain)" target="_blank" rel="noopener">▶ <code>/go-safe?url=javascript:…</code></a> — it falls back to <code>/</code>.</p>
+</div>
+
+<h2>Why entity decoding makes this sneaky (link to Module 02)</h2>
+<p>The parser decodes character references in attribute values <em>before</em>
+your code sees them. So all of these reconstruct <code>javascript:</code> after
+parsing, defeating a naive filter that looks for the literal string:</p>
+<pre><code>java&amp;#115;cript:alert(1)
+java&amp;#x73;cript:alert(1)
+javascript&amp;colon;alert(1)
+&amp;#106;avascript:alert(1)
+  jav\tascript:alert(1)      &lt;- leading/embedded whitespace &amp; control chars
+JaVaScRiPt:alert(1)          &lt;- case</code></pre>
+<p><strong>Consequence for defenders:</strong> a scheme check must run on the
+<em>fully decoded, trimmed, lower-cased</em> value — and even then it must be an
+<strong>allowlist</strong> (permit <code>http/https/mailto/relative</code>), never
+a denylist of "bad" schemes. Module 12 weaponizes these evasions; Module 17
+builds the correct allowlist.</p>
+
+<h2>Open redirectors as XSS delivery</h2>
+<p>Even a redirector that <em>does</em> restrict schemes can be an attack
+amplifier. An <strong>open redirect</strong> (one that sends users to any
+attacker-chosen <code>http(s)</code> URL) is a delivery vehicle: it lends the
+target's trusted domain to a link that ultimately lands the victim on an
+attacker page, and it chains with other bugs (e.g. stealing an OAuth token by
+redirecting to <code>//evil.example</code>). The defensive lesson is the same:
+validate redirect targets against an allowlist, not just for scheme but for
+host.</p>
+
+<h2>The defense, precisely</h2>
+<div class="card safe">
+<ol>
+<li><strong>Decode fully</strong> (HTML entities + percent-encoding), trim
+whitespace/control chars, lower-case.</li>
+<li><strong>Allowlist schemes:</strong> permit <code>https:</code>,
+<code>http:</code>, <code>mailto:</code>, and relative URLs
+(<code>/</code>, <code>#</code>, <code>?</code>); reject everything else,
+including <code>javascript:</code>, <code>data:</code>, <code>vbscript:</code>,
+<code>blob:</code>.</li>
+<li><strong>For redirects, also allowlist the host.</strong></li>
+<li><strong>Defense in depth:</strong> a CSP with a restrictive
+<code>script-src</code> blocks <code>javascript:</code> URL execution even if one
+slips through; <code>navigate-to</code>/<code>form-action</code> constrain
+navigation targets.</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Why must a scheme check run on the decoded value, and give two encodings of
+<code>javascript:</code> that beat a literal-string filter.</li>
+<li>Why is an allowlist of schemes strictly safer than a denylist?</li>
+<li>How does an open redirect amplify an attack even when it only permits
+<code>http/https</code>?</li>
+</ol>
+</div>
+
+<footer>
+Module 06 of 19 · <a href="../module_07_namespace/">Next: Tag &amp; Namespace Confusion ▸</a><br>
+Endpoints: <code>/go</code> (vulnerable) vs <code>/go-safe</code> (allowlisted).
+</footer>
+</body>
+</html>
