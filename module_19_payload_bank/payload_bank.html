@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 19 — The XSS Payload Bank</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_19_payload_bank/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_18_threatmodel/">◂ Module 18</a>
+</nav>
+
+<p class="kicker">Module 19 · field guide</p>
+<h1>The XSS Payload Bank — 100+ Annotated Attacks</h1>
+<p class="lead">Every payload is a hypothesis about a broken assumption. This bank
+teaches you to <em>read</em> a payload and instantly know: what context it targets,
+which mechanism executes it, what defense it bypasses, and what would stop it. It
+is your lifelong field guide and your Module 18 evaluation corpus.</p>
+
+<div class="card">
+<strong>How to use it.</strong> Filter by keyword, or open a category. Copy any
+payload and fire it at the matching lab endpoint (e.g. mechanism-1/2 → Module 04's
+<code>/search</code>; DOM sinks → Module 09's SPA; filter evasion → Module 12's
+<code>/waf-search</code>). Each entry is tagged by the five-mechanism taxonomy so
+you can measure a defense's coverage by <em>mechanism</em>, not by payload count.
+Payloads are shown as inert, escaped text — nothing here executes.
+</div>
+
+<h2>Categories</h2>
+<div class="card">
+<p style="line-height:2">
+<a href="../module_19_payload_bank/payloads/01_script_tags.html">1 · Script tags</a> ·
+<a href="../module_19_payload_bank/payloads/02_event_handlers.html">2 · Event handlers</a> ·
+<a href="../module_19_payload_bank/payloads/03_uri_schemes.html">3 · URI schemes</a> ·
+<a href="../module_19_payload_bank/payloads/04_svg_mathml.html">4 · SVG / MathML</a> ·
+<a href="../module_19_payload_bank/payloads/05_dom_sinks.html">5 · DOM sinks</a> ·
+<a href="../module_19_payload_bank/payloads/06_filter_evasion.html">6 · Filter evasion</a> ·
+<a href="../module_19_payload_bank/payloads/07_mxss.html">7 · mXSS</a> ·
+<a href="../module_19_payload_bank/payloads/08_chaining_payloads.html">8 · Chaining</a> ·
+<a href="../module_19_payload_bank/payloads/09_exotic_modern.html">9 · Exotic / modern</a> ·
+<a href="../module_19_payload_bank/payloads/10_real_world_derived.html">10 · Real-world derived</a>
+</p>
+</div>
+
+<h2>Search the whole bank</h2>
+<input id="bankFilter" class="flt" placeholder="filter by keyword: 'onerror', 'csp', 'mxss', 'Samy', 'data:', 'prototype'…"
+       style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:6px;font:inherit;margin:6px 0">
+<p id="bankCount" class="lead"></p>
+
+<div id="bank"></div>
+
+<footer>
+Module 19 of 19 · <a href="/">Back to lab home</a><br>
+A living reference. Extend <code>payloads.js</code> as you find new gadgets —
+keep them tagged by mechanism so the bank stays a defensible corpus.
+</footer>
+
+<script src="../assets/lab.js"></script>
+<script src="../module_19_payload_bank/payloads.js"></script>
+</body>
+</html>
