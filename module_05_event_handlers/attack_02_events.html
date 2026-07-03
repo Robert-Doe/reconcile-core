@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 05 — Event Handler Injection</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_05_event_handlers/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_04_script_injection/">◂ Module 04</a>
+  <a href="../module_05_event_handlers/event_catalog.html">Event catalog ▸</a>
+  <a href="../module_06_uri_schemes/">Module 06 ▸</a>
+</nav>
+
+<p class="kicker">Module 05 · <span class="mechtag m2">Mechanism 2: Event attributes</span></p>
+<h1>Event Handler Injection — The Real Workhorse <span class="badge attack">attack</span></h1>
+<p class="lead">Blocking <code>&lt;script&gt;</code> stops one mechanism and
+changes nothing about this one. Intrinsic event attributes run JavaScript with no
+script tag at all — and several fire with zero user interaction.</p>
+
+<h2>Why this is <em>the</em> mechanism to master</h2>
+<p>In the real world, <code>&lt;script&gt;</code> is the first thing filtered and
+the first thing CSP blocks. Event-handler injection is what actually lands,
+because:</p>
+<ul>
+<li>There are <strong>150+ intrinsic event attributes</strong> — an
+enormous long tail no denylist covers completely (see the
+<a href="../module_05_event_handlers/event_catalog.html">event catalog</a>).</li>
+<li>Some fire <strong>automatically</strong>: <code>onerror</code> on a broken
+resource, <code>onload</code> on <code>&lt;svg&gt;</code>/<code>&lt;body&gt;</code>,
+and <code>onfocus</code> combined with <code>autofocus</code> — no click, no
+hover, no interaction.</li>
+<li>They live on ordinary, allowlisted-looking tags (<code>&lt;img&gt;</code>,
+<code>&lt;input&gt;</code>, <code>&lt;svg&gt;</code>), so "images are safe"
+intuition fails.</li>
+</ul>
+
+<h2>The universal fallback: <code>&lt;img onerror&gt;</code></h2>
+<div class="card danger">
+<p><code>&lt;img&gt;</code> with a <code>src</code> that cannot load fires
+<code>onerror</code> immediately. This is the single most reliable payload in the
+XSS canon because a broken image is <em>guaranteed</em> to error.</p>
+<div class="payload">
+  <input id="p1" value="<img src=x onerror=alert(document.domain)>">
+  <button class="copy" data-copy="#p1">copy</button>
+  <button class="run" data-payload="#p1" data-target="#d1">render (sandboxed)</button>
+</div>
+<iframe class="demo-frame" id="d1" title="sandboxed demo"></iframe>
+<p>Feed the same string to the Module 04 endpoint:
+<a href="http://localhost:5000/search?q=%3Cimg%20src%3Dx%20onerror%3Dalert(document.domain)%3E" target="_blank" rel="noopener">/search?q=&lt;img src=x onerror=…&gt;</a>.
+It fires even though a <code>&lt;script&gt;</code>-blocking filter would let it
+through — because there is no <code>&lt;script&gt;</code>.</p>
+</div>
+
+<h2>Zero-interaction variants</h2>
+<p>Try each in the sandboxed renderer. Note that <em>none</em> require a click.</p>
+<div class="payload">
+  <input id="p2" value="<svg onload=alert(1)>">
+  <button class="run" data-payload="#p2" data-target="#d2">render</button>
+</div>
+<div class="payload">
+  <input id="p3" value="<input autofocus onfocus=alert(1)>">
+  <button class="run" data-payload="#p3" data-target="#d2">render</button>
+</div>
+<div class="payload">
+  <input id="p4" value="<body onpageshow=alert(1)>">
+  <button class="run" data-payload="#p4" data-target="#d2">render</button>
+</div>
+<div class="payload">
+  <input id="p5" value="<video><source onerror=alert(1)></video>">
+  <button class="run" data-payload="#p5" data-target="#d2">render</button>
+</div>
+<div class="payload">
+  <input id="p6" value="<details open ontoggle=alert(1)>">
+  <button class="run" data-payload="#p6" data-target="#d2">render</button>
+</div>
+<iframe class="demo-frame" id="d2" title="sandboxed demo"></iframe>
+
+<h3>Why <code>autofocus + onfocus</code> is special</h3>
+<p>Most events need the user to <em>do</em> something. <code>autofocus</code> is
+an attribute that makes the browser move focus to the element automatically on
+load; that focus <em>is</em> an event, so <code>onfocus</code> fires with no
+interaction. Combining an auto-firing attribute with a handler is the general
+recipe for zero-click execution — and it works on form controls that a filter is
+likely to consider harmless.</p>
+
+<h2>The lesson for filters</h2>
+<div class="card">
+<p>Consider a filter that removes <code>&lt;script&gt;</code> tags. Against the
+five mechanisms:</p>
+<table>
+<thead><tr><th>Mechanism</th><th>Blocked by "remove &lt;script&gt;"?</th></tr></thead>
+<tbody>
+<tr><td>1 Tag parsing (&lt;script&gt;)</td><td>partially (string match is bypassable — Module 12)</td></tr>
+<tr><td><strong>2 Event attributes</strong></td><td><strong>NO — completely open</strong></td></tr>
+<tr><td>3 URI schemes</td><td>No</td></tr>
+<tr><td>4 DOM sinks</td><td>No</td></tr>
+<tr><td>5 Escape + reparse</td><td>No</td></tr>
+</tbody>
+</table>
+<p>A denylist of tags is a denylist against <em>one</em> mechanism, and a leaky
+one. This is the empirical case for the course's central defensive claim:
+<strong>denylisting loses; you must encode by context or constrain by
+capability (CSP / Trusted Types).</strong></p>
+</div>
+
+<h2>How the correct defense looks here</h2>
+<p>If the injection point is an HTML <em>attribute</em> value, the fix is
+attribute-context encoding: encode <code>"</code>, <code>'</code>, <code>&lt;</code>,
+<code>&gt;</code>, <code>&amp;</code>, and backtick so the attacker cannot close
+the attribute or introduce a new one. If the point is HTML text, text encoding
+prevents the tag from forming in the first place, so no <code>on*</code>
+attribute is ever created. And a CSP without <code>'unsafe-inline'</code> refuses
+to run inline event handlers even if one is injected — a capability control that
+does not depend on getting encoding perfect. Module 17 measures each.</p>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Give three payloads that execute with no user interaction and name the
+event each relies on.</li>
+<li>Why does "remove <code>&lt;script&gt;</code>" leave this mechanism entirely
+open?</li>
+<li>An injection lands inside <code>title="HERE"</code>. What is the minimum set
+of characters you must encode to stop an <code>on*</code> handler being added?</li>
+</ol>
+</div>
+
+<footer>
+Module 05 of 19 · <a href="../module_05_event_handlers/event_catalog.html">Companion: the 150+ event catalog ▸</a>
+</footer>
+<script src="../assets/lab.js"></script>
+</body>
+</html>

