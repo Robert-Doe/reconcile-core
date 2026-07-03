@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 04 — Script Tag Injection</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_04_script_injection/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_03_taxonomy/">◂ Module 03</a>
+  <a href="../module_05_event_handlers/">Module 05 ▸</a>
+</nav>
+
+<p class="kicker">Module 04 · <span class="mechtag m1">Mechanism 1: Tag parsing</span></p>
+<h1>Script Tag Injection — The Baseline <span class="badge attack">attack</span></h1>
+<p class="lead">The most literal XSS: the server echoes your URL parameter into
+the HTML with no encoding, so your <code>&lt;script&gt;</code> becomes part of
+the document the browser parses and runs.</p>
+
+<h2>The vulnerable endpoint</h2>
+<p>Module 04 adds a <code>/search</code> endpoint (see
+<code>vuln_reflect.py</code>). Its core bug is one line:</p>
+<pre><code># vuln_reflect.py
+q = request.args.get("q", "")
+html = PAGE % q          # &lt;-- q is interpolated with NO encoding
+return Response(html, mimetype="text/html")</code></pre>
+<p>The template puts <code>q</code> into HTML <em>text context</em>:</p>
+<pre><code>&lt;p&gt;You searched for: <b>{{ q }}</b>&lt;/p&gt;</code></pre>
+<p>So whatever bytes you send in <code>q</code> land between two tags, exactly
+where <code>&lt;</code> starts a new tag (tokenizer Data state, Module 02).</p>
+
+<h2>Fire it</h2>
+<div class="card danger">
+<p>With the lab running, open this URL:</p>
+<div class="payload">
+  <input id="u1" value="http://localhost:5000/search?q=<script>alert(document.domain)</script>">
+  <button class="copy" data-copy="#u1">copy</button>
+</div>
+<p><a href="http://localhost:5000/search?q=%3Cscript%3Ealert(document.domain)%3C/script%3E" target="_blank" rel="noopener">▶ open it in a new tab</a></p>
+<p>The box pops <code>localhost:5000</code> — proof that arbitrary JS now runs in
+the lab's origin. Then compare with the encoded endpoint:</p>
+<p><a href="http://localhost:5000/search-safe?q=%3Cscript%3Ealert(document.domain)%3C/script%3E" target="_blank" rel="noopener">▶ same payload against <code>/search-safe</code></a> — it shows as inert text.</p>
+</div>
+
+<h2>Read the difference in DevTools</h2>
+<ol>
+<li>Open <code>/search?q=&lt;script&gt;...&lt;/script&gt;</code>, then
+<strong>View Source</strong>: you see your literal <code>&lt;script&gt;</code>
+tag in the response bytes.</li>
+<li>Open <code>/search-safe?...</code> and View Source: the server sent
+<code>&amp;lt;script&amp;gt;</code>. The <code>&lt;</code> was encoded to
+<code>&amp;lt;</code>, so the tokenizer stays in Data state and never opens a
+tag — it renders the text "&lt;script&gt;" on screen.</li>
+</ol>
+<p>That one substitution — <code>&lt;</code> → <code>&amp;lt;</code> — is
+<strong>contextual output encoding</strong>, the canonical fix for mechanism 1 in
+HTML text context. Notice it is a <em>server-side</em> transformation of the
+<em>output</em>, not input filtering.</p>
+
+<h2>Why <code>&lt;script&gt;</code> is the obvious vector — and often blocked</h2>
+<p><code>&lt;script&gt;</code> is the first thing every defender thinks to block,
+so in practice it is frequently filtered, stripped, or CSP-blocked. Three things
+a serious student must internalize:</p>
+<table>
+<thead><tr><th>Fact</th><th>Consequence</th></tr></thead>
+<tbody>
+<tr><td>A <code>&lt;script&gt;</code> inserted later via <code>innerHTML</code> does <strong>not</strong> execute.</td><td>Reflected injection runs because it is present during the <em>initial parse</em>. DOM-sink injection (Module 09) needs a different mechanism — usually an event handler — because <code>innerHTML</code> won't run raw scripts. This distinction trips up beginners constantly.</td></tr>
+<tr><td>Blocking the literal string <code>script</code> is trivially bypassed.</td><td>Case (<code>&lt;ScRiPt&gt;</code>), split tags, and encoding defeat naive filters (Module 12). And it does nothing to mechanisms 2–5.</td></tr>
+<tr><td>A CSP <code>script-src</code> without <code>'unsafe-inline'</code> blocks this payload even if the HTML injection succeeds.</td><td>This is why the <em>next</em> thing you learn is that attackers pivot to mechanisms CSP is weaker against, and defenders pivot to Trusted Types + strict CSP (Module 17).</td></tr>
+</tbody>
+</table>
+
+<h2>The take-home</h2>
+<div class="card safe">
+<p>Reflected script injection is the <em>hello world</em> of XSS: untrusted input
+crosses into HTML text context unencoded. The fix (contextual encoding of output)
+is simple <em>here</em> — but the rest of the course exists because real apps
+have dozens of contexts (attributes, URLs, JS, CSS, foreign content), each with
+its own correct encoding, and because attackers have four other mechanisms that
+this fix does not touch.</p>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Why does the <code>/search</code> payload execute but the same string set via
+<code>element.innerHTML</code> would not?</li>
+<li>What single character substitution defuses this payload, and why does it work
+at the tokenizer level?</li>
+<li>Encoding fixed mechanism 1 here. Which mechanisms did it <em>not</em> touch?</li>
+</ol>
+</div>
+
+<footer>
+Module 04 of 19 · <a href="../module_05_event_handlers/">Next: Event Handler Injection ▸</a><br>
+Endpoint: <code>/search</code> (vulnerable) vs <code>/search-safe</code> (encoded).
+</footer>
+</body>
+</html>
