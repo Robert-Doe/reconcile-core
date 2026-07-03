@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 18 — Threat Model</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_18_threatmodel/module.css">
+<style>
+  .matrix td, .matrix th { text-align:center; font-size:.85rem; }
+  .matrix td.attack { text-align:left; }
+  .yes { color:#0b6e4f; font-weight:700; }
+  .no  { color:#c0392b; font-weight:700; }
+  .partial { color:#b5551f; font-weight:700; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_17_defenses/">◂ Module 17</a>
+  <a href="../module_18_threatmodel/gap_analysis.html">Gap analysis ▸</a>
+  <a href="../module_18_threatmodel/intervention_template.md">Intervention template ▸</a>
+</nav>
+
+<p class="kicker">Module 18 · synthesis</p>
+<h1>Threat Model: All 19 Modules Against the 5 Mechanisms</h1>
+<p class="lead">This is where the course becomes research. You map every attack you
+learned onto the five execution mechanisms, then onto the defenses, and the empty
+cells — the places no deployed defense cleanly covers — are where your PhD
+intervention lives.</p>
+
+<h2>Attack → mechanism map</h2>
+<p>Every technique in Modules 04–16 reduces to one or more of the five
+mechanisms. Confirm you can place each:</p>
+<table class="matrix">
+<thead><tr><th class="attack">Attack (module)</th><th>1 Tag</th><th>2 Event</th><th>3 URI</th><th>4 DOM sink</th><th>5 Escape/reparse</th></tr></thead>
+<tbody>
+<tr><td class="attack">Script injection (M04)</td><td class="yes">●</td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="attack">Event handlers (M05)</td><td></td><td class="yes">●</td><td></td><td></td><td></td></tr>
+<tr><td class="attack">URI schemes (M06)</td><td></td><td></td><td class="yes">●</td><td></td><td></td></tr>
+<tr><td class="attack">SVG/MathML/iframe (M07)</td><td class="yes">●</td><td class="yes">●</td><td></td><td></td><td class="yes">●</td></tr>
+<tr><td class="attack">Attribute injection (M08)</td><td></td><td class="yes">●</td><td></td><td></td><td class="yes">●</td></tr>
+<tr><td class="attack">DOM XSS (M09)</td><td></td><td class="yes">●</td><td></td><td class="yes">●</td><td></td></tr>
+<tr><td class="attack">Stored/2nd-order (M10)</td><td class="yes">●</td><td class="yes">●</td><td class="yes">●</td><td></td><td class="yes">●</td></tr>
+<tr><td class="attack">Blind/OOB (M11)</td><td class="yes">●</td><td class="yes">●</td><td></td><td></td><td></td></tr>
+<tr><td class="attack">Filter evasion (M12)</td><td class="yes">●</td><td class="yes">●</td><td class="yes">●</td><td></td><td class="yes">●</td></tr>
+<tr><td class="attack">mXSS (M13)</td><td class="yes">●</td><td class="yes">●</td><td></td><td></td><td class="yes">●</td></tr>
+<tr><td class="attack">Prototype pollution (M14)</td><td></td><td></td><td></td><td class="yes">●</td><td></td></tr>
+<tr><td class="attack">Chaining/ATO (M15)</td><td colspan="5" style="text-align:center">amplifies impact of any of the above</td></tr>
+</tbody>
+</table>
+
+<h2>Defense × mechanism coverage</h2>
+<p>Now the defenses from Module 17. ● full · ◐ partial · ○ none:</p>
+<table class="matrix">
+<thead><tr><th class="attack">Defense</th><th>1 Tag</th><th>2 Event</th><th>3 URI</th><th>4 DOM sink</th><th>5 Escape/reparse</th></tr></thead>
+<tbody>
+<tr><td class="attack">Contextual output encoding</td><td class="yes">●</td><td class="yes">●</td><td class="yes">●</td><td class="no">○</td><td class="partial">◐</td></tr>
+<tr><td class="attack">Strict nonce CSP</td><td class="yes">●</td><td class="yes">●</td><td class="yes">●</td><td class="partial">◐</td><td class="partial">◐</td></tr>
+<tr><td class="attack">Trusted Types</td><td class="no">○</td><td class="no">○</td><td class="no">○</td><td class="yes">●</td><td class="partial">◐</td></tr>
+<tr><td class="attack">DOM sanitizer (DOMPurify)</td><td class="yes">●</td><td class="yes">●</td><td class="yes">●</td><td class="partial">◐</td><td class="partial">◐</td></tr>
+<tr><td class="attack"><code>textContent</code> / safe DOM APIs</td><td class="yes">●</td><td class="yes">●</td><td class="yes">●</td><td class="yes">●</td><td class="yes">●</td></tr>
+<tr><td class="attack">HttpOnly / re-auth / SRI / isolation</td><td colspan="5" style="text-align:center">impact reduction (M15/16), not execution prevention</td></tr>
+</tbody>
+</table>
+<div class="card">
+<strong>Read the tables together.</strong> No single deployable defense is ●
+across all five, and the two that come closest — Trusted Types and "just use
+<code>textContent</code>" — either need broad browser support + app rewiring, or
+can't be used where rich HTML is genuinely required. That tension is the research
+gap.
+</div>
+
+<h2>The residual-risk questions (your thesis targets one)</h2>
+<ol>
+<li><strong>Mechanism 5 (reparse/mXSS)</strong> is only ◐ everywhere. Can a defense
+be <em>idempotent under re-serialization by construction</em>, so a sanitized value
+is provably stable across re-parses?</li>
+<li><strong>Coverage without an allowlist that drifts:</strong> the DOM API grows;
+sink allowlists and sanitizer configs go stale. Can coverage be expressed against
+<em>mechanisms</em> rather than an enumerated sink list?</li>
+<li><strong>Deployability:</strong> Trusted Types is the strongest sink defense but
+Chromium-centric and rewire-heavy. Is there an <em>in-browser fallback</em> that
+gives TT-like guarantees where TT is unavailable?</li>
+<li><strong>Legacy/no-header contexts:</strong> can a purely client-side shim
+enforce capability controls when the server sends no CSP (the exact gap this lab's
+default state models)?</li>
+</ol>
+
+<h2>Positioning statement (fill this in)</h2>
+<div class="card safe">
+<p>Use this frame, then flesh it out in
+<a href="../module_18_threatmodel/intervention_template.md">intervention_template.md</a>:</p>
+<blockquote>
+<em>"My intervention is a <strong>[in-browser shim / sanitizer / policy layer]</strong>
+that targets <strong>mechanism(s) [N]</strong>, which existing defenses cover only
+<strong>[partially/not at all]</strong> in <strong>[deployment context]</strong>.
+It provides <strong>[guarantee]</strong> and I evaluate it against the corpus in
+Module 19 plus a differential parse/serialize harness, measuring
+<strong>[coverage, bypass rate, perf, compatibility]</strong>."</em>
+</blockquote>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Which mechanism is least well covered by deployable defenses, and why?</li>
+<li>Why is "coverage against mechanisms" a stronger research claim than "coverage
+against a payload list"?</li>
+<li>State your intervention's target mechanism and the specific gap it closes.</li>
+</ol>
+</div>
+
+<footer>
+Module 18 of 19 · <a href="../module_18_threatmodel/gap_analysis.html">Next: Gap analysis ▸</a>
+</footer>
+</body>
+</html>

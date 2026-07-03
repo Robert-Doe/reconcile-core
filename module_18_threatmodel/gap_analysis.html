@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 18 — Gap Analysis</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_18_threatmodel/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_18_threatmodel/threat_model.html">◂ Threat model</a>
+  <a href="../module_18_threatmodel/intervention_template.md">Intervention template ▸</a>
+</nav>
+
+<p class="kicker">Module 18 · where defenses fail</p>
+<h1>Gap Analysis of Existing Defenses</h1>
+<p class="lead">A defense's <em>gaps</em> are more useful to a researcher than its
+strengths. Here is an honest accounting of where each pillar leaks, so your
+intervention can aim at a real, unsolved seam rather than reinventing a solved
+one.</p>
+
+<h2>Gap 1 — Encoding is only as good as its context awareness</h2>
+<div class="card">
+<ul>
+<li><strong>Wrong-context encoding:</strong> HTML-encoding a value that lands in a
+JS or URL context does nothing (Module 06/08). Correctness depends on the developer
+choosing the right encoder at every sink — a per-call human decision that fails at
+scale.</li>
+<li><strong>Not idempotent under mutation:</strong> encoding operates on output
+strings; it doesn't defend the re-parse inequality of mXSS (Module 13).</li>
+<li><strong>Nothing for DOM sinks:</strong> server-side encoding can't see
+client-side source→sink flows (Module 09).</li>
+</ul>
+<p><strong>Seam:</strong> automatic, context-inferring encoding that is correct by
+construction at every sink — and stable under re-serialization.</p>
+</div>
+
+<h2>Gap 2 — CSP is powerful but widely misdeployed and partially bypassable</h2>
+<div class="card">
+<ul>
+<li><strong><code>'unsafe-inline'</code> everywhere:</strong> a large fraction of
+real CSPs include it, neutering coverage of mechanisms 1–2 (Module 17).</li>
+<li><strong>Allowlist bypasses:</strong> host allowlists fall to JSONP endpoints,
+open redirects on allowed hosts, and CDNs hosting bypass gadgets.</li>
+<li><strong>DOM sinks survive:</strong> CSP doesn't stop <code>innerHTML</code>
+DOM-XSS unless paired with Trusted Types.</li>
+<li><strong>Adoption friction:</strong> nonce plumbing through templates and
+third-party scripts is nontrivial; many sites never reach a strict policy.</li>
+<li><strong>Absent entirely:</strong> countless apps send no CSP at all — the exact
+default this lab models.</li>
+</ul>
+<p><strong>Seam:</strong> capability enforcement that doesn't depend on the server
+shipping a correct header, and that resists allowlist-gadget bypasses.</p>
+</div>
+
+<h2>Gap 3 — Trusted Types has the right shape but limited reach</h2>
+<div class="card">
+<ul>
+<li><strong>Browser support:</strong> Chromium-centric; no enforcement in
+non-Chromium engines today, so it can't be a sole control.</li>
+<li><strong>Rewire cost:</strong> every DOM-sink call site must route through a
+policy; legacy codebases and third-party widgets resist this.</li>
+<li><strong>Scope:</strong> guards DOM sinks (mechanism 4) and script URLs, but not
+server-reflected HTML (mechanism 1 in the initial response) or attribute-context
+break-out on the server side.</li>
+</ul>
+<p><strong>Seam:</strong> a portable, in-browser fallback that provides TT-like
+"strings can't reach sinks" guarantees where TT is unavailable, with low rewrite
+cost.</p>
+</div>
+
+<h2>Gap 4 — Sanitizers chase an ever-moving mXSS frontier</h2>
+<div class="card">
+<ul>
+<li><strong>Mutation gadgets recur:</strong> each new parser/namespace interaction
+can yield a new bypass; safety is a maintenance treadmill (Module 13).</li>
+<li><strong>Config drift:</strong> allowlists of tags/attrs and namespace handling
+must track platform growth; a stale config is a hole.</li>
+<li><strong>Input-time misuse:</strong> sanitizing once at input rather than at each
+output/context reintroduces second-order bugs (Module 10).</li>
+</ul>
+<p><strong>Seam:</strong> sanitization with a <em>provable</em> stability property
+(idempotent under re-serialization) rather than an empirically-patched blocklist of
+gadgets.</p>
+</div>
+
+<h2>Gap 5 — Impact controls are orthogonal and often missing</h2>
+<div class="card">
+<ul>
+<li><strong><code>HttpOnly</code>, re-auth, SRI, iframe isolation</strong> reduce
+<em>impact</em> (Module 15/16) but don't prevent execution, and each is
+independently forgettable.</li>
+<li>Card-skimming (Magecart/BA) shows that <em>egress</em> and <em>secret
+isolation</em> are underused compared to execution-focused controls.</li>
+</ul>
+<p><strong>Seam:</strong> a coherent "assume execution, deny egress + isolate
+secrets" architecture with a usable default.</p>
+</div>
+
+<h2>Synthesis: the shape of a strong intervention</h2>
+<div class="card safe">
+<p>The most defensible PhD contributions in this space tend to:</p>
+<ol>
+<li><strong>Target a specific seam</strong> above (ideally mechanism 5 idempotence,
+or deployability of capability controls) rather than "better filtering."</li>
+<li><strong>Offer a provable property</strong> (idempotence, non-interference,
+fail-closed) instead of an empirical blocklist.</li>
+<li><strong>Be deployable</strong> where current controls aren't — e.g. a purely
+client-side shim for no-CSP legacy apps, or a non-Chromium Trusted-Types
+polyfill with real enforcement.</li>
+<li><strong>Come with an evaluation harness</strong> (Module 19 corpus + a
+differential parse/serialize oracle) that measures coverage against
+<em>mechanisms</em>, bypass rate, performance, and compatibility.</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Pick one seam and argue why it is unsolved, citing the specific module
+evidence.</li>
+<li>What distinguishes a "provable property" defense from a "blocklist" defense,
+and why do reviewers prefer the former?</li>
+<li>What must your evaluation measure to be credible?</li>
+</ol>
+</div>
+
+<footer>
+Module 18 of 19 · <a href="../module_18_threatmodel/intervention_template.md">Next: fill in the intervention template ▸</a>
+</footer>
+</body>
+</html>
