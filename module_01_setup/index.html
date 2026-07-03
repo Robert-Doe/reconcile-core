@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 01 — Environment Setup & Attacker Mindset</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_01_setup/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_01_setup/devtools_guide.html">DevTools guide ▸</a>
+  <a href="../module_02_parsing/">Module 02 ▸</a>
+</nav>
+
+<p class="kicker">Module 01</p>
+<h1>Environment Setup &amp; How to Think Like an Attacker</h1>
+<p class="lead">Before you can defend an origin, you have to be able to attack a
+copy of it that you own — and read the browser the way an attacker does.</p>
+
+<h2>1. What you are building</h2>
+<p>A single, intentionally-vulnerable web app on <code>http://localhost:5000</code>
+that you fully control. Every later module adds either a vulnerable endpoint or
+a tutorial page to this same origin. Keeping everything on one origin is not
+laziness — it is <em>honest</em>, because XSS is fundamentally an
+<strong>origin-scoped</strong> bug: the whole game is getting JavaScript to run
+<em>inside</em> a target's origin so it inherits that origin's trust.</p>
+
+<h2>2. Start the lab</h2>
+<div class="card">
+<p><strong>Windows</strong></p>
+<pre><code>run.bat</code></pre>
+<p><strong>macOS / Linux / Git Bash</strong></p>
+<pre><code>make run</code></pre>
+<p><strong>Manual</strong></p>
+<pre><code>python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt   REM Windows
+python lab_server.py</code></pre>
+<p>Then open <a href="http://localhost:5000">http://localhost:5000</a>. You
+should see the module index. If you do, your lab is live.</p>
+</div>
+
+<h2>3. The one idea that makes XSS make sense: the Same-Origin Policy</h2>
+<p>The browser isolates content by <strong>origin</strong>, defined as the
+triple <code>(scheme, host, port)</code>. Two pages share an origin only if all
+three match exactly:</p>
+<table>
+<thead><tr><th>URL A</th><th>URL B</th><th>Same origin?</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>http://localhost:5000/a</code></td><td><code>http://localhost:5000/b</code></td><td>✅ yes</td><td>scheme+host+port identical</td></tr>
+<tr><td><code>http://localhost:5000</code></td><td><code>https://localhost:5000</code></td><td>❌ no</td><td>scheme differs (http vs https)</td></tr>
+<tr><td><code>http://localhost:5000</code></td><td><code>http://localhost:5001</code></td><td>❌ no</td><td>port differs</td></tr>
+<tr><td><code>http://localhost:5000</code></td><td><code>http://127.0.0.1:5000</code></td><td>❌ no</td><td>host string differs (even though it resolves the same!)</td></tr>
+</tbody>
+</table>
+<p>The Same-Origin Policy (SOP) stops <em>origin A</em>'s script from reading
+<em>origin B</em>'s cookies, DOM, or responses. <strong>XSS is the bug class
+that defeats SOP from the inside:</strong> if an attacker gets their script to
+run <em>as</em> origin B, SOP now <em>protects the attacker's code</em>. Every
+cookie, every logged-in session, every same-origin fetch is theirs. That is why
+"just an alert box" is never the real threat — the alert only proves the
+attacker owns the origin's trust.</p>
+
+<div class="card safe">
+<strong>Mental model.</strong> Ask of every feature: <em>"Can attacker-controlled
+bytes reach a place where the browser will treat them as code running in this
+origin?"</em> That single question is the whole course.
+</div>
+
+<h2>4. The attacker's loop (how to think)</h2>
+<ol>
+<li><strong>Find a reflection or sink.</strong> Where does my input come back
+out — in HTML? in an attribute? in a URL? in a JS string? Or does client code
+read my input and hand it to a DOM API?</li>
+<li><strong>Identify the context.</strong> The <em>same</em> payload behaves
+differently in HTML text vs. inside an attribute vs. inside a
+<code>&lt;script&gt;</code> vs. inside a URL. Context decides the escape you
+need.</li>
+<li><strong>Break the context.</strong> Supply the exact bytes that end the
+current context and start a code-bearing one (a quote, a <code>&gt;</code>, a
+<code>javascript:</code>).</li>
+<li><strong>Prove execution.</strong> Land a harmless
+<code>alert(document.domain)</code>. If it pops, arbitrary JS runs in this
+origin — full stop.</li>
+<li><strong>Then think like a defender.</strong> What single control would have
+made step 3 impossible <em>regardless of payload</em>? That is the question your
+PhD answers.</li>
+</ol>
+
+<h2>5. Prove the loop right now</h2>
+<p>This box is a miniature reflected sink running <em>in this page</em> (pure
+client-side, safe). Type into it and watch how the <em>context</em> changes what
+executes. Try each of these in turn:</p>
+<div class="payload">
+  <input id="p1" value="&lt;b&gt;hello&lt;/b&gt;">
+  <button class="run" data-payload="#p1" data-target="#demo1">render</button>
+</div>
+<p class="lead">Then try <code>&lt;img src=x onerror=alert(document.domain)&gt;</code>
+— note it fires with <strong>no</strong> <code>&lt;script&gt;</code> tag at all.
+That is a preview of Module 05.</p>
+<iframe class="demo-frame" id="demo1" title="sandboxed demo"></iframe>
+<p class="lead">The output frame is <code>sandbox="allow-scripts"</code>, so
+payloads execute for you to observe but cannot touch the real lab origin — this
+is also the safe pattern for demoing live payloads to others.</p>
+
+<h2>6. Your toolkit</h2>
+<table>
+<thead><tr><th>Tool</th><th>Use in this course</th></tr></thead>
+<tbody>
+<tr><td>Browser DevTools (F12)</td><td>Your primary weapon &amp; microscope — see the <a href="../module_01_setup/devtools_guide.html">DevTools guide</a></td></tr>
+<tr><td>The lab server</td><td>The target you own</td></tr>
+<tr><td>View Source vs. Inspect</td><td>View-Source shows the <em>bytes the server sent</em>; Inspect shows the <em>DOM the browser built</em>. The gap between them is where mXSS lives (Module 13).</td></tr>
+<tr><td>Network tab</td><td>See exactly what was sent/received — essential for reflected &amp; stored analysis</td></tr>
+<tr><td>Console</td><td>Run JS in the page origin; test sinks directly</td></tr>
+</tbody>
+</table>
+
+<h2>7. Checkpoint</h2>
+<div class="card">
+<p>You are ready for Module 02 when you can answer these without looking:</p>
+<ol>
+<li>What three things must match for two URLs to share an origin?</li>
+<li>Why is <code>alert(1)</code> a proof of impact, not the impact itself?</li>
+<li>What is the difference between what <em>View Source</em> and <em>Inspect</em> show you, and why will that gap matter later?</li>
+</ol>
+</div>
+
+<footer>
+Module 01 of 19 · <a href="../module_01_setup/devtools_guide.html">Next: DevTools as a weapon ▸</a><br>
+Localhost teaching lab. Harmless proofs only. Do not deploy.
+</footer>
+<script src="../assets/lab.js"></script>
+</body>
+</html>

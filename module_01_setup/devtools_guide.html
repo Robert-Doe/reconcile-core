@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 01 — DevTools as a Weapon</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_01_setup/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_01_setup/">◂ Module 01 index</a>
+  <a href="../module_02_parsing/">Module 02 ▸</a>
+</nav>
+
+<p class="kicker">Module 01 · Companion</p>
+<h1>Browser DevTools as a Weapon</h1>
+<p class="lead">DevTools is where you <em>see the truth</em>: not the bytes you
+sent, but the DOM the browser actually built from them. Master these six panels
+and you can dissect any XSS.</p>
+
+<h2>Open it</h2>
+<p><kbd>F12</kbd>, or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> (Windows),
+<kbd>Cmd</kbd>+<kbd>Opt</kbd>+<kbd>I</kbd> (macOS). Right-click → <em>Inspect</em>
+jumps straight to an element.</p>
+
+<h2>1. Elements — the built DOM (not the source)</h2>
+<p>This is the single most important distinction in the whole course:</p>
+<table>
+<thead><tr><th>View Source (Ctrl+U)</th><th>Elements panel / Inspect</th></tr></thead>
+<tbody>
+<tr><td>The raw bytes the server sent</td><td>The live DOM tree the parser constructed</td></tr>
+<tr><td>Static text</td><td>Reflects JS mutations, error recovery, normalization</td></tr>
+<tr><td>Shows your literal payload string</td><td>Shows what that string <em>became</em></td></tr>
+</tbody>
+</table>
+<div class="card danger">
+<strong>Why this gap is the attack surface.</strong> When you send
+<code>&lt;p&gt;&lt;p&gt;&lt;/p&gt;</code>, View Source shows three tags, but the
+Elements panel shows the parser <em>silently rewrote</em> them into properly
+nested nodes. Mutation XSS (Module 13) is entirely about payloads that look inert
+in the source string but become dangerous once the parser rebuilds them. You can
+only see that in Elements.
+</div>
+
+<h2>2. Console — run JS as the origin</h2>
+<p>The Console executes JavaScript in the page's origin. Use it to probe sinks
+directly before you try to reach them through injection:</p>
+<pre><code>// Where does user input flow? Inspect a suspected DOM sink live:
+document.getElementById('output').innerHTML = '&lt;img src=x onerror=alert(1)&gt;';
+
+// Read what an attacker would steal (in the real target, this is the payoff):
+document.cookie
+document.domain
+
+// Watch a source you can control:
+location.hash</code></pre>
+<p>The Console also shows uncaught errors — a broken payload often throws here,
+telling you exactly which character ended your injection early.</p>
+
+<h2>3. Network — what really crossed the wire</h2>
+<p>Reload with the Network tab open. Click a request to see:</p>
+<ul>
+<li><strong>Request URL / payload</strong> — confirm your parameter arrived unmangled.</li>
+<li><strong>Response</strong> — search it for your payload to confirm reflection and see the <em>surrounding context</em> (Is it inside an attribute? A script? Between tags?). Context decides your break-out.</li>
+<li><strong>Response Headers</strong> — is there a <code>Content-Security-Policy</code>? A <code>Content-Type</code>? A <code>Set-Cookie</code> with <code>HttpOnly</code>? These tell you which defenses (Module 17) are in play.</li>
+</ul>
+
+<h2>4. Sources — set breakpoints on sinks</h2>
+<p>For DOM XSS (Module 09) you must trace a <em>source → sink</em> flow in client
+code. In Sources you can:</p>
+<ul>
+<li>Set a line breakpoint where the app reads <code>location.hash</code> / <code>location.search</code> (the source).</li>
+<li>Use an <strong>Event Listener Breakpoint</strong> or a <strong>DOM breakpoint</strong> (right-click a node → Break on → subtree modifications) to catch the moment a sink writes your data.</li>
+<li>Step through to watch tainted data travel from source to <code>innerHTML</code>/<code>eval</code>.</li>
+</ul>
+
+<h2>5. Application — cookies, storage, the loot</h2>
+<p>Under Application → Storage you see Cookies, Local/Session Storage, and their
+flags. Note per cookie:</p>
+<table>
+<thead><tr><th>Flag</th><th>What it means for an attacker</th></tr></thead>
+<tbody>
+<tr><td><code>HttpOnly</code></td><td>JS <em>cannot</em> read it via <code>document.cookie</code> — pushes the attacker toward request-forgery instead of theft (Module 15).</td></tr>
+<tr><td><code>Secure</code></td><td>Only sent over HTTPS.</td></tr>
+<tr><td><code>SameSite</code></td><td>Limits cross-site sending — a CSRF control, not an XSS one. XSS runs <em>same-site</em>, so SameSite does not save you.</td></tr>
+</tbody>
+</table>
+
+<h2>6. The "search the response" habit</h2>
+<p>Global search across all loaded resources: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>.
+Drop a unique marker like <code>zZq9</code> into every field, submit, then search
+all responses for <code>zZq9</code>. Every hit is a candidate reflection — and
+the surrounding bytes tell you the context you must break.</p>
+
+<h2>Attacker workflow, condensed</h2>
+<ol>
+<li><strong>Map reflections</strong> with a unique marker + global search.</li>
+<li><strong>Read the context</strong> in the Network response and the Elements DOM.</li>
+<li><strong>Diff source vs. DOM</strong> — did the parser change your bytes?</li>
+<li><strong>Probe the sink</strong> live in Console before crafting the injection.</li>
+<li><strong>Confirm impact scope</strong> in Application (what cookies/storage would you own?).</li>
+</ol>
+
+<div class="card safe">
+<strong>Defender's inversion.</strong> Every one of these steps has a mitigation
+that would blind the attacker: contextual output encoding kills step 2, a strict
+CSP kills execution, <code>HttpOnly</code> shrinks step 5. Keep a running note of
+"which DevTools observation would this defense erase?" — that note becomes your
+Module 18 gap analysis.
+</div>
+
+<footer>
+Module 01 of 19 · <a href="../module_02_parsing/">Next: How Browsers Parse HTML ▸</a><br>
+Localhost teaching lab. Harmless proofs only.
+</footer>
+</body>
+</html>
