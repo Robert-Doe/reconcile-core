@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 09 — Vulnerable SPA (DOM XSS target)</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_09_dom/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_09_dom/attack_06_dom.html">◂ Module 09 tutorial</a>
+</nav>
+
+<p class="kicker">Module 09 · live target</p>
+<h1>Mini SPA (intentionally vulnerable)</h1>
+<p class="lead">This page is a client-side app. The <strong>server never sees
+your payload</strong> — everything happens in the browser. It reads the URL
+fragment (<code>location.hash</code>) and renders it. That is a textbook
+source → sink DOM XSS.</p>
+
+<div class="card">
+<p>Current route (from <code>location.hash</code>): <code id="route">—</code></p>
+<h2 id="title">Welcome</h2>
+<div id="content" class="card">Navigate using the buttons or edit the URL after <code>#</code>.</div>
+<p>
+  <a href="#home">#home</a> ·
+  <a href="#about">#about</a> ·
+  <a href="#profile/guest">#profile/guest</a>
+</p>
+</div>
+
+<div class="card danger">
+<strong>Try the attack.</strong> Append this to the URL and reload:
+<div class="payload">
+  <input id="pl" value="#&lt;img src=x onerror=alert(document.domain)&gt;">
+  <button class="copy" data-copy="#pl">copy</button>
+</div>
+<p>i.e. visit <code>…/spa_demo.html#&lt;img src=x onerror=alert(document.domain)&gt;</code>
+— the <code>&lt;img&gt;</code> is written via <code>innerHTML</code> and its
+<code>onerror</code> fires. Note: the <code>#</code> fragment is
+<strong>never sent to the server</strong>, so no server-side filter or WAF ever
+sees it.</p>
+</div>
+
+<h3>The vulnerable code (read it)</h3>
+<pre><code>function render() {
+  const raw = decodeURIComponent(location.hash.slice(1)); // SOURCE
+  document.getElementById('route').textContent = raw || '(none)';
+
+  if (raw.startsWith('profile/')) {
+    const who = raw.slice('profile/'.length);
+    // SINK: innerHTML with attacker-influenced string
+    document.getElementById('content').innerHTML = 'Profile of ' + who;
+    document.getElementById('title').textContent = 'Profile';
+  } else if (raw === 'about') {
+    document.getElementById('content').textContent = 'About this app.';
+  } else {
+    // SINK: the whole fragment flows into innerHTML
+    document.getElementById('content').innerHTML = raw || 'Home';
+  }
+}
+window.addEventListener('hashchange', render);
+render();</code></pre>
+
+<script>
+// The above, live. This is the vulnerability under study.
+function render() {
+  const raw = decodeURIComponent(location.hash.slice(1)); // SOURCE: location.hash
+  document.getElementById('route').textContent = raw || '(none)';
+
+  if (raw.startsWith('profile/')) {
+    const who = raw.slice('profile/'.length);
+    // SINK: innerHTML — 'who' is attacker-controlled
+    document.getElementById('content').innerHTML = 'Profile of ' + who;
+    document.getElementById('title').textContent = 'Profile';
+  } else if (raw === 'about') {
+    document.getElementById('content').textContent = 'About this app.';
+    document.getElementById('title').textContent = 'About';
+  } else if (raw === '' || raw === 'home') {
+    document.getElementById('content').textContent = 'Home. Nothing to see.';
+    document.getElementById('title').textContent = 'Welcome';
+  } else {
+    // SINK: entire fragment → innerHTML
+    document.getElementById('content').innerHTML = raw;
+    document.getElementById('title').textContent = 'Route';
+  }
+}
+window.addEventListener('hashchange', render);
+render();
+</script>
+<script src="../assets/lab.js"></script>
+</body>
+</html>

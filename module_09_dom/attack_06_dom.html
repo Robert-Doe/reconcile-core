@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 09 — DOM-Based XSS & Client-Side Sinks</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_09_dom/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_08_attribute/">◂ Module 08</a>
+  <a href="../module_09_dom/spa_demo.html">Vulnerable SPA ▸</a>
+  <a href="../module_10_stored/">Module 10 ▸</a>
+</nav>
+
+<p class="kicker">Module 09 · <span class="mechtag m4">Mechanism 4: DOM sinks</span></p>
+<h1>DOM-Based XSS &amp; Client-Side Sinks <span class="badge attack">attack</span></h1>
+<p class="lead">The payload never touches the server. Client JavaScript reads a
+<strong>source</strong> it doesn't control and hands it to a <strong>sink</strong>
+that treats strings as code or markup. Server-side filters are blind to it.</p>
+
+<h2>The source → sink model</h2>
+<p>DOM XSS is a <em>taint-flow</em> bug: attacker-controlled data flows from a
+source, through the program, into a dangerous sink, without being neutralized on
+the way.</p>
+<table>
+<thead><tr><th>Sources (attacker-influenced)</th><th>Sinks (interpret strings)</th></tr></thead>
+<tbody>
+<tr><td><code>location.hash</code>, <code>location.search</code>, <code>location.pathname</code></td><td><code>innerHTML</code>, <code>outerHTML</code>, <code>insertAdjacentHTML()</code></td></tr>
+<tr><td><code>document.referrer</code></td><td><code>document.write()</code>, <code>document.writeln()</code></td></tr>
+<tr><td><code>window.name</code></td><td><code>eval()</code>, <code>new Function()</code>, <code>setTimeout('str')</code>, <code>setInterval('str')</code></td></tr>
+<tr><td><code>postMessage</code> event data</td><td><code>el.setAttribute('href'|'src', …)</code>, <code>location = …</code>, <code>a.href = …</code></td></tr>
+<tr><td><code>localStorage</code>/<code>sessionStorage</code>, cookies</td><td><code>iframe.srcdoc</code>, <code>el.innerHTML</code> via a framework (<code>v-html</code>, <code>dangerouslySetInnerHTML</code>)</td></tr>
+<tr><td>server JSON later read by JS</td><td>jQuery <code>$(x).html()</code>, <code>$(userInput)</code></td></tr>
+</tbody>
+</table>
+
+<h2>Fire it against the lab SPA</h2>
+<div class="card danger">
+<p>The <a href="../module_09_dom/spa_demo.html">mini SPA</a> reads
+<code>location.hash</code> into <code>innerHTML</code>. Visit:</p>
+<div class="payload">
+  <input id="u1" value="http://localhost:5000/m/module_09_dom/spa_demo.html#<img src=x onerror=alert(document.domain)>">
+  <button class="copy" data-copy="#u1">copy</button>
+</div>
+<p><a href="../module_09_dom/spa_demo.html#<img src=x onerror=alert(document.domain)>" target="_blank" rel="noopener">▶ open the SPA with the payload in the fragment</a>.</p>
+<p><strong>Now open the Network tab and reload.</strong> The <code>#</code>
+fragment is <em>not</em> in any request — the server literally never receives it.
+This is the defining property of DOM XSS: it is invisible server-side.</p>
+</div>
+
+<h2>Why <code>&lt;img onerror&gt;</code> and not <code>&lt;script&gt;</code>?</h2>
+<p>Recall Module 04: a <code>&lt;script&gt;</code> inserted via
+<code>innerHTML</code> does <strong>not</strong> execute — the HTML spec forbids
+"parser-inserted" script from a fragment assignment. So DOM XSS through
+<code>innerHTML</code> pivots to <strong>mechanism 2</strong> (event handlers) or
+<strong>mechanism 3</strong> (URI schemes). This is a crisp example of the
+taxonomy guiding exploitation: the sink dictates which mechanism you reach for.</p>
+<pre><code>el.innerHTML = '&lt;script&gt;alert(1)&lt;/script&gt;';   // does NOT run
+el.innerHTML = '&lt;img src=x onerror=alert(1)&gt;';    // DOES run
+el.innerHTML = '&lt;svg onload=alert(1)&gt;';           // DOES run</code></pre>
+
+<h2>Tracing the flow in DevTools</h2>
+<ol>
+<li><strong>Sources panel:</strong> set a breakpoint on the line that reads
+<code>location.hash</code> (the source).</li>
+<li>Right-click the target node → <em>Break on → subtree modifications</em> (a
+DOM breakpoint on the sink).</li>
+<li>Reload with the payload; step through and watch the tainted string travel
+source → sink with no sanitization. This <em>is</em> the vulnerability, made
+visible.</li>
+</ol>
+
+<h2>Special sinks worth knowing</h2>
+<table>
+<thead><tr><th>Sink</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td><code>eval(x)</code>, <code>Function(x)</code></td><td>Interpret <em>JavaScript</em>, not HTML. Any source reaching them is instant RCE-in-origin. <code>JSON.parse</code> is the safe alternative to <code>eval</code> for data.</td></tr>
+<tr><td><code>setTimeout('code', t)</code></td><td>String first argument is <code>eval</code>-like. Always pass a function instead.</td></tr>
+<tr><td><code>location = x</code> / <code>a.href = x</code></td><td>Feeds mechanism 3: a <code>javascript:</code> value executes.</td></tr>
+<tr><td><code>$(userInput)</code> (jQuery)</td><td>A string starting with <code>&lt;</code> is parsed as HTML — a historically huge DOM-XSS source.</td></tr>
+<tr><td><code>postMessage</code> handler → <code>innerHTML</code></td><td>Cross-window messages are attacker-controllable if <code>origin</code> isn't checked.</td></tr>
+</tbody>
+</table>
+
+<h2>The defense, precisely</h2>
+<div class="card safe">
+<ol>
+<li><strong>Choose safe sinks:</strong> <code>textContent</code> not
+<code>innerHTML</code>; <code>setAttribute</code> with an allowlisted attribute;
+build DOM with <code>createElement</code>/<code>append</code>, never string
+concatenation.</li>
+<li><strong>Never feed sources to <code>eval</code>/<code>Function</code>/string
+timers.</strong></li>
+<li><strong>Trusted Types</strong> (Module 17) turn these sinks into
+type-enforced APIs: <code>innerHTML</code> refuses a plain string and demands a
+<code>TrustedHTML</code> produced by a vetted policy — a <em>capability</em>
+control that closes mechanism 4 wholesale, which is why it is central to your
+Module 18 intervention.</li>
+<li><strong>Validate <code>postMessage</code> origins</strong> and never trust
+<code>window.name</code>/<code>referrer</code>.</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Why is DOM XSS invisible to a server-side WAF? Prove it with the Network
+tab.</li>
+<li>Why did the payload use <code>onerror</code> rather than a
+<code>&lt;script&gt;</code> tag?</li>
+<li>Which sink is more dangerous, <code>innerHTML</code> or <code>eval</code>,
+and why? What is the safe replacement for each?</li>
+</ol>
+</div>
+
+<footer>
+Module 09 of 19 · <a href="../module_10_stored/">Next: Stored &amp; Second-Order XSS ▸</a><br>
+Target: <a href="../module_09_dom/spa_demo.html">spa_demo.html</a> (client-only).
+</footer>
+<script src="../assets/lab.js"></script>
+</body>
+</html>
