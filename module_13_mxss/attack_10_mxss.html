@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 13 — Mutation XSS (mXSS)</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_13_mxss/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_12_evasion/">◂ Module 12</a>
+  <a href="../module_14_proto/">Module 14 ▸</a>
+</nav>
+
+<p class="kicker">Module 13 · <span class="mechtag m5">Mechanism 5: reparse</span></p>
+<h1>Mutation XSS (mXSS) — The Subtlest Class <span class="badge attack">attack</span></h1>
+<p class="lead">A string that is provably safe when a sanitizer inspects it, and
+provably dangerous the moment the browser re-parses its own serialization. mXSS
+is why <em>string-based</em> sanitization is structurally, not just practically,
+unsound.</p>
+
+<h2>The core inequality</h2>
+<div class="card danger">
+<p style="font-size:1.15rem;text-align:center">
+<code>reserialize( parse( x ) )  ≠  x</code>
+</p>
+<p>The HTML parser and the HTML serializer are <strong>not inverses</strong>
+(Module 02). A sanitizer typically does: <em>parse → clean the tree → serialize
+back to a string</em>. It then hands that string to a sink (<code>innerHTML</code>),
+which <strong>parses it again</strong>. If the second parse produces a different
+tree than the one that was cleaned, the cleaning was applied to a tree the
+browser never actually renders — and a handler can reappear.</p>
+</div>
+
+<h2>See the mutation, live</h2>
+<p>This page loads <code>naive_sanitizer.js</code>. Enter a payload; we show
+(a) what a naive DOM sanitizer produces, and (b) whether re-parsing that "clean"
+output regrows a live event handler. Nothing here executes — we detect handlers
+structurally.</p>
+<div class="payload">
+  <input id="mx" value='<noscript><p title="</noscript><img src=x onerror=alert(1)>">'>
+  <button id="run" class="run">analyze</button>
+</div>
+<div class="card">
+<div><strong>Sanitizer output (what it approved):</strong>
+  <pre id="san">—</pre></div>
+<div><strong>Live handler in sanitizer output?</strong> <code id="h1">—</code></div>
+<div><strong>Re-parse of that output (what the sink builds):</strong>
+  <pre id="rt">—</pre></div>
+<div><strong>Round-trip stable?</strong> <code id="stable">—</code>
+     &nbsp;<strong>Live handler after re-parse?</strong> <code id="h2">—</code></div>
+</div>
+<p class="lead">When "handler after re-parse" is <code>true</code> while the
+sanitizer's own inspection said <code>false</code>, you are looking at an mXSS
+bypass: the sanitizer and the sink disagree about the DOM.</p>
+
+<h3>Payloads to try</h3>
+<div class="payload"><input id="e1" value='<noscript><p title="</noscript><img src=x onerror=alert(1)>">'><button class="copy" data-copy="#e1">use</button></div>
+<div class="payload"><input id="e2" value='<svg></p><style><a id="</style><img src=1 onerror=alert(1)>">'><button class="copy" data-copy="#e2">use</button></div>
+<div class="payload"><input id="e3" value='<table><td><style></style><img src=x onerror=alert(1)></table>'><button class="copy" data-copy="#e3">use</button></div>
+<div class="payload"><input id="e4" value='<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>'><button class="copy" data-copy="#e4">use</button></div>
+
+<h2>Why these mutate — the mechanisms</h2>
+<table>
+<thead><tr><th>Trigger</th><th>What the parser does</th></tr></thead>
+<tbody>
+<tr><td><code>&lt;noscript&gt;</code> with scripting on vs off</td><td>With scripting <em>enabled</em> (normal browsing, where the sanitizer runs) the contents of <code>&lt;noscript&gt;</code> are treated as raw text — so the inner <code>&lt;img onerror&gt;</code> is "just text" and the sanitizer sees no element. Re-parsed in a context that closes <code>&lt;/noscript&gt;</code> early, the <code>&lt;img&gt;</code> becomes a real element with a live handler.</td></tr>
+<tr><td>Foster parenting out of <code>&lt;table&gt;</code></td><td>Illegal in-table content is relocated <em>before</em> the table on re-parse (Module 02), moving nodes out of the subtree the sanitizer cleaned.</td></tr>
+<tr><td><code>&lt;style&gt;</code>/<code>&lt;title&gt;</code> RAWTEXT/RCDATA boundaries</td><td>Where the raw-text region ends shifts between parses, so a <code>&lt;/style&gt;</code> can "unmask" markup that was previously inert text.</td></tr>
+<tr><td>MathML/SVG integration points (<code>&lt;mglyph&gt;</code>, <code>&lt;annotation-xml&gt;</code>)</td><td>Namespace flips between HTML and foreign content on re-parse reinterpret the same bytes as different elements (Module 07).</td></tr>
+</tbody>
+</table>
+
+<div class="card">
+<strong>Honesty note.</strong> Specific historical payloads (the
+<code>&lt;noscript&gt;</code> and <code>&lt;mglyph&gt;</code> classics) have been
+<em>patched</em> in current DOMPurify and hardened in browsers. Whether a given
+string still <em>executes</em> in your exact browser/sanitizer version varies —
+but the analyzer above still shows the <strong>mutation</strong> (round-trip
+instability), which is the durable lesson. New mXSS gadgets are found regularly
+precisely because the underlying inequality never goes away. Your PhD-grade
+question: <em>can a defense be idempotent under re-serialization by
+construction?</em></p>
+</div>
+
+<h2>Why string sanitizers can't win, structurally</h2>
+<ul>
+<li>They must predict the browser's parse of their <em>output</em>, but the parse
+depends on context (insertion mode, scripting-enabled flag, namespace) that the
+sanitizer does not control at the eventual sink.</li>
+<li>Serialization is lossy/normalizing and not the inverse of parsing, so
+"clean tree → string" can encode a <em>different</em> tree.</li>
+<li>The safe fixpoint (a string that parses to itself, forever) is not something
+a one-shot cleaner can guarantee — you would need to parse-serialize to a
+<em>fixed point</em> and re-clean each round, which real sanitizers historically
+did not do.</li>
+</ul>
+
+<h2>The defense, precisely</h2>
+<div class="card safe">
+<ol>
+<li><strong>Prefer not to sanitize HTML at all</strong> — use
+<code>textContent</code> and structured DOM construction so no re-parse
+happens.</li>
+<li><strong>If you must accept HTML, use a maintained, DOM-based, mutation-aware
+sanitizer</strong> (DOMPurify) and keep it updated; consider its
+<code>SAFE_FOR_TEMPLATES</code> / namespace options.</li>
+<li><strong>Sanitize to a fixed point:</strong> re-parse the sanitizer's output
+and re-clean until stable (defends the round-trip inequality directly).</li>
+<li><strong>Add capability defenses</strong> (Trusted Types + strict CSP) so that
+even a mutation that regrows a handler cannot <em>execute</em> — this is why the
+strongest posture layers sanitization <em>under</em> a capability control
+(Module 17/18).</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>State the mXSS inequality and explain why parse and serialize are not
+inverses.</li>
+<li>Why does the <code>&lt;noscript&gt;</code> payload look empty to a sanitizer
+running in a normal browser tab?</li>
+<li>What does "sanitize to a fixed point" mean and which failure does it
+address?</li>
+</ol>
+</div>
+
+<footer>
+Module 13 of 19 · <a href="../module_14_proto/">Next: Prototype Pollution → DOM XSS ▸</a><br>
+Analysis only — this page detects handlers structurally and never executes payloads.
+</footer>
+<script src="../assets/lab.js"></script>
+<script src="../module_13_mxss/naive_sanitizer.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  function analyze() {
+    const s = $("mx").value;
+    const N = window.NaiveSanitizer;
+    const sanitized = N.naiveDomSanitize(s);
+    $("san").textContent = sanitized || "(empty)";
+    $("h1").textContent = N.hasLiveHandler(sanitized);
+    const rt = N.roundTrip(sanitized);
+    $("rt").textContent = rt.afterParse1 || "(empty)";
+    $("stable").textContent = rt.stable;
+    // Does re-parsing the "clean" output regrow a handler?
+    $("h2").textContent = N.hasLiveHandler(N.serialize(sanitized));
+  }
+  $("run").addEventListener("click", analyze);
+  // convenience: clicking a "use" button also runs the analysis
+  document.addEventListener("click", (e) => {
+    if (e.target.matches("button.copy[data-copy]")) {
+      const src = document.querySelector(e.target.getAttribute("data-copy"));
+      if (src) { $("mx").value = src.value; analyze(); }
+    }
+  });
+  analyze();
+})();
+</script>
+</body>
+</html>
