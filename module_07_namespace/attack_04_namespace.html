@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 07 — Tag & Namespace Confusion</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_07_namespace/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_06_uri_schemes/">◂ Module 06</a>
+  <a href="../module_08_attribute/">Module 08 ▸</a>
+</nav>
+
+<p class="kicker">Module 07 · <span class="mechtag m1">Mech 1</span> <span class="mechtag m5">Mech 5</span></p>
+<h1>Tag &amp; Namespace Confusion — SVG, MathML, iframe <span class="badge attack">attack</span></h1>
+<p class="lead">HTML5 lets SVG and MathML live <em>inline</em> in an HTML
+document, each with its own parsing rules. Those rule-switches — and the fact
+that SVG is a scriptable document format — break sanitizers that reason only
+about "HTML".</p>
+
+<h2>Why "it's just an image" is wrong</h2>
+<p>An SVG file is an XML document. It can contain a <code>&lt;script&gt;</code>
+element and intrinsic event handlers. When an SVG is served
+<strong>same-origin</strong> as <code>image/svg+xml</code> and rendered as a
+<em>document</em> (you navigate to it, or embed it via
+<code>&lt;object&gt;</code>/<code>&lt;iframe&gt;</code>, or inline it into the
+page), that script runs in <em>your</em> origin.</p>
+<pre><code>&lt;svg xmlns="http://www.w3.org/2000/svg" onload="alert(document.domain)"&gt;
+  &lt;script&gt;alert('SVG script runs in ' + document.domain)&lt;/script&gt;
+  &lt;text x="10" y="20"&gt;I look like an image.&lt;/text&gt;
+&lt;/svg&gt;</code></pre>
+<div class="card danger">
+<p>Module 07 ships this exact file as <code>malicious.svg</code>. With the lab
+running:</p>
+<p><a href="http://localhost:5000/upload" target="_blank" rel="noopener">▶ open the upload page</a>, then click "open (vulnerable)" next to
+<code>malicious.svg</code>. It is served from <code>/uploads/malicious.svg</code>
+as <code>image/svg+xml</code> and the script executes in the lab origin.</p>
+<p>Compare "open (safe)": <code>/uploads-safe/…</code> forces a download with
+<code>nosniff</code> + <code>Content-Disposition: attachment</code> + a
+<code>default-src 'none'</code> CSP — it cannot execute.</p>
+</div>
+
+<h2>Inline SVG breaks HTML sanitizers</h2>
+<p>Inside <code>&lt;svg&gt;</code>/<code>&lt;math&gt;</code> the parser is in
+<strong>foreign content</strong> mode (Module 02), where the rules differ from
+HTML body:</p>
+<table>
+<thead><tr><th>Foreign-content quirk</th><th>Why it bypasses sanitizers</th></tr></thead>
+<tbody>
+<tr><td>Some element/attribute names are <strong>case-sensitive</strong> (e.g. <code>&lt;foreignObject&gt;</code>, <code>viewBox</code>)</td><td>A sanitizer that lowercases everything mangles names or misses matches.</td></tr>
+<tr><td><code>&lt;svg&gt;</code> supports its own <code>&lt;script&gt;</code> and event handlers (<code>onload</code>, <code>onbegin</code> on <code>&lt;set&gt;</code>/<code>&lt;animate&gt;</code>)</td><td>Denylists tuned to HTML tags miss SVG-specific vectors.</td></tr>
+<tr><td>Self-closing behaves differently; XML-style <code>/&gt;</code> is honored</td><td>Tag boundaries a sanitizer computed for HTML are wrong.</td></tr>
+<tr><td><code>&lt;foreignObject&gt;</code> re-enters HTML parsing <em>inside</em> SVG</td><td>You can smuggle HTML vectors into a context the sanitizer treats as SVG.</td></tr>
+<tr><td>Namespace escape: leaving <code>&lt;math&gt;</code>/<code>&lt;svg&gt;</code> via <code>&lt;annotation-xml encoding="text/html"&gt;</code> integration points</td><td>Content flips back to HTML parsing where the sanitizer already "decided" it was safe.</td></tr>
+</tbody>
+</table>
+<p>Representative vectors (render each in the sandbox to observe):</p>
+<div class="payload">
+  <input id="p1" value="<svg><script>alert(1)</script></svg>">
+  <button class="run" data-payload="#p1" data-target="#d1">render</button>
+</div>
+<div class="payload">
+  <input id="p2" value="<svg><animate onbegin=alert(1) attributeName=x dur=1s>">
+  <button class="run" data-payload="#p2" data-target="#d1">render</button>
+</div>
+<div class="payload">
+  <input id="p3" value="<svg><set attributeName=x onbegin=alert(1)>">
+  <button class="run" data-payload="#p3" data-target="#d1">render</button>
+</div>
+<div class="payload">
+  <input id="p4" value="<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>">
+  <button class="run" data-payload="#p4" data-target="#d1">render</button>
+</div>
+<iframe class="demo-frame" id="d1" title="sandboxed demo"></iframe>
+<p class="lead">The MathML one (<code>&lt;mglyph&gt;</code> …) is a famous mXSS
+seed — the parser's integration-point rules relocate/reinterpret the nested
+content. You will meet it again in Module 13.</p>
+
+<h2><code>iframe srcdoc</code> — double decoding</h2>
+<p><code>&lt;iframe srcdoc="…"&gt;</code> takes an <strong>HTML-encoded</strong>
+document as an attribute value. The attribute is entity-decoded first, then the
+result is parsed as a full HTML document. That double pass lets you hide a script
+behind entities:</p>
+<pre><code>&lt;iframe srcdoc="&amp;lt;script&amp;gt;alert(document.domain)&amp;lt;/script&amp;gt;"&gt;&lt;/iframe&gt;</code></pre>
+<div class="payload">
+  <input id="p5" value='<iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe>'>
+  <button class="run" data-payload="#p5" data-target="#d1">render</button>
+</div>
+<p>A sanitizer that entity-decodes once and inspects, or that allowlists
+<code>&lt;iframe&gt;</code> but forgets <code>srcdoc</code> is a code sink, is
+beaten here.</p>
+
+<h2>The defensive takeaways</h2>
+<div class="card safe">
+<ol>
+<li><strong>Treat SVG as active content.</strong> Never serve user SVG
+same-origin as <code>image/svg+xml</code>. Serve uploads from a
+<em>separate, sandboxed origin</em>, force <code>Content-Disposition:
+attachment</code> + <code>X-Content-Type-Options: nosniff</code>, or rasterize to
+PNG.</li>
+<li><strong>Sanitize on the DOM, in the right namespace.</strong> String
+sanitizers that don't model foreign-content rules (and their integration points)
+will miss SVG/MathML vectors. DOM-based sanitizers (DOMPurify) that understand
+namespaces are the baseline — Module 13/17.</li>
+<li><strong>Remember <code>srcdoc</code> and <code>data:</code> are code
+sinks</strong>, not benign attributes.</li>
+<li><strong>CSP is the backstop:</strong> <code>script-src</code> restrictions
+apply inside SVG documents too.</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Give the exact conditions under which an uploaded SVG executes script in your
+origin, and two server headers that prevent it.</li>
+<li>Why does lowercasing a payload break a sanitizer in foreign content?</li>
+<li>What makes <code>&lt;iframe srcdoc&gt;</code> a double-decoding hazard?</li>
+</ol>
+</div>
+
+<footer>
+Module 07 of 19 · <a href="../module_08_attribute/">Next: Attribute Injection ▸</a><br>
+Endpoints: <code>/upload</code>, <code>/uploads/&lt;name&gt;</code> (vulnerable) vs <code>/uploads-safe/&lt;name&gt;</code>.
+</footer>
+<script src="../assets/lab.js"></script>
+</body>
+</html>
