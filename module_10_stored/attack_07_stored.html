@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 10 — Stored & Second-Order XSS</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_10_stored/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_09_dom/">◂ Module 09</a>
+  <a href="../module_11_blind/">Module 11 ▸</a>
+</nav>
+
+<p class="kicker">Module 10 · delivery class</p>
+<h1>Stored &amp; Second-Order XSS <span class="badge attack">attack</span></h1>
+<p class="lead">Reflected XSS needs a crafted link per victim. Stored XSS needs
+nothing: the payload lives in the database and fires for
+<strong>every visitor, automatically, forever</strong> — until someone finds
+it.</p>
+
+<h2>Reflected vs. stored vs. DOM (the three delivery classes)</h2>
+<table>
+<thead><tr><th></th><th>Where the payload lives</th><th>Who is hit</th><th>Server sees it?</th></tr></thead>
+<tbody>
+<tr><td>Reflected (M04)</td><td>in a crafted URL</td><td>whoever clicks the link</td><td>yes (in the request)</td></tr>
+<tr><td><strong>Stored (this module)</strong></td><td>in the app's storage</td><td><strong>every visitor to the page</strong></td><td>yes (at write time)</td></tr>
+<tr><td>DOM (M09)</td><td>in client state / URL fragment</td><td>whoever loads the crafted state</td><td>often no</td></tr>
+</tbody>
+</table>
+<p>These are <em>delivery classes</em>, orthogonal to the five
+<em>mechanisms</em>. A stored XSS still executes via mechanism 1/2/3/5 — storage
+just changes <em>who</em> gets hit and <em>how reliably</em>.</p>
+
+<h2>Fire it against the lab</h2>
+<div class="card danger">
+<p>Module 10 adds a SQLite-backed comment board at <code>/comments</code>
+(<code>vuln_store.py</code>). Post this as a comment body:</p>
+<div class="payload">
+  <input id="p1" value="<img src=x onerror=alert(document.domain)>">
+  <button class="copy" data-copy="#p1">copy</button>
+</div>
+<p><a href="http://localhost:5000/comments" target="_blank" rel="noopener">▶ open <code>/comments</code></a>, paste it into the comment box, and Post.
+Now <strong>every reload</strong> — for you and any other "visitor" — fires the
+payload, because it is rendered from the database unencoded.</p>
+<p>Then open <a href="http://localhost:5000/comments-safe" target="_blank" rel="noopener">/comments-safe</a>: the <em>same stored rows</em> render as inert
+text, because the fix is at <strong>output</strong>, not input. The malicious row
+is still in the database — encoding it on the way out is what neutralizes it.</p>
+</div>
+
+<h2>Key insight: fix on output, not input</h2>
+<p>A tempting but wrong fix is to sanitize comments <em>before storing</em>.
+Problems:</p>
+<ul>
+<li>You must then render in exactly the context you sanitized for — but the same
+row often appears in HTML, in an attribute, in a JSON API, in an email. One
+input-time sanitization cannot be correct for all output contexts.</li>
+<li>Sanitizing on input corrupts legitimate data (a comment literally discussing
+<code>&lt;script&gt;</code>) and can be bypassed by encoding.</li>
+<li>Data already in the database (from before the filter, or from another writer)
+is still dangerous.</li>
+</ul>
+<p>The robust rule: <strong>store raw, encode/​sanitize at each output for that
+output's context.</strong></p>
+
+<h2>Second-order XSS: safe-at-input, dangerous-at-output</h2>
+<p>Second-order (a.k.a. stored-in-one-context, executed-in-another) is the subtle
+sibling. Consider a username validated as "plain text, no SQL injection" and
+stored fine. Later, an <em>admin dashboard</em> renders that username into an HTML
+<strong>attribute</strong> and tag — a different context — without re-encoding:</p>
+<pre><code>&lt;!-- /admin/logs renders each author as: --&gt;
+&lt;span title="AUTHOR" data-user="AUTHOR"&gt;AUTHOR&lt;/span&gt;
+&lt;!-- store author = "&gt;&lt;img src=x onerror=alert(document.domain)&gt; --&gt;</code></pre>
+<div class="card danger">
+<p>Post a comment whose <strong>author</strong> field is:</p>
+<div class="payload">
+  <input id="p2" value='"><img src=x onerror=alert(document.domain)>'>
+  <button class="copy" data-copy="#p2">copy</button>
+</div>
+<p>via <a href="http://localhost:5000/comments" target="_blank" rel="noopener">/comments</a>, then open
+<a href="http://localhost:5000/admin/logs" target="_blank" rel="noopener">/admin/logs</a>. It fires there — in the admin's session — even though the
+comment <em>board</em> might have encoded it. The payload was inert where it was
+stored and became active where it was re-rendered.</p>
+</div>
+<p><strong>Why this is dangerous:</strong> the victim is often a
+<em>privileged</em> user (an admin viewing logs), and the attacker never has to
+visit the vulnerable page themselves. That is the bridge to Module 11 (blind XSS)
+and Module 15 (chaining to account takeover).</p>
+
+<h2>The defense, precisely</h2>
+<div class="card safe">
+<ol>
+<li><strong>Encode/sanitize at every output, for that output's exact
+context</strong> (HTML text, attribute, JS, URL, CSS). Never rely on a single
+input-time cleanse.</li>
+<li><strong>Assume all stored data is tainted</strong>, including data written by
+other services or before your filter existed.</li>
+<li><strong>Trace every rendering site of a stored field</strong> — the
+second-order bug lives in the <em>forgotten</em> render site (admin tools, PDF
+exports, emails).</li>
+<li><strong>CSP + Trusted Types</strong> as a backstop that does not depend on
+finding every render site.</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Why does fixing stored XSS at <em>output</em> beat sanitizing at
+<em>input</em>? Give two concrete failure modes of input sanitization.</li>
+<li>Explain second-order XSS in one sentence and identify the likely victim.</li>
+<li>The malicious row is still in the DB after you switch to
+<code>/comments-safe</code>. Why is the page nonetheless safe?</li>
+</ol>
+</div>
+
+<footer>
+Module 10 of 19 · <a href="../module_11_blind/">Next: Blind XSS &amp; Out-of-Band ▸</a><br>
+Endpoints: <code>/comments</code>, <code>/comments-safe</code>, <code>/admin/logs</code>.
+</footer>
+<script src="../assets/lab.js"></script>
+</body>
+</html>
