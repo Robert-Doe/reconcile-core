@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 14 — Prototype Pollution → DOM XSS</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<link rel="stylesheet" href="../module_14_proto/module.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Lab home</a>
+  <a href="../module_13_mxss/">◂ Module 13</a>
+  <a href="../module_15_chaining/">Module 15 ▸</a>
+</nav>
+
+<p class="kicker">Module 14 · <span class="mechtag m4">Mechanism 4 (indirect)</span></p>
+<h1>Prototype Pollution → DOM XSS <span class="badge attack">attack</span></h1>
+<p class="lead">An XSS with <em>no injection point</em>. You never control the
+sink's argument directly — you poison the <em>defaults</em> that innocent code
+falls back to, by writing onto <code>Object.prototype</code>.</p>
+
+<h2>The two halves of the bug</h2>
+<p>Prototype pollution is only exploitable when a <strong>pollution sink</strong>
+meets a <strong>gadget</strong>:</p>
+<table>
+<thead><tr><th>Half</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td><strong>1. Pollution sink</strong></td><td>Code that copies attacker-controlled keys into an object without blocking <code>__proto__</code>/<code>constructor</code>/<code>prototype</code> — typically an unsafe deep-merge, <code>_.set</code>, a query-string parser, or JSON merged into config. Writing <code>obj["__proto__"]["x"]=v</code> sets <code>Object.prototype.x = v</code>, so <em>every</em> object now inherits <code>x</code>.</td></tr>
+<tr><td><strong>2. Gadget</strong></td><td>Innocent code that reads a property which is usually <em>absent</em>, so it falls through to the polluted prototype, and passes the value somewhere dangerous — a DOM sink (<code>innerHTML</code>, <code>src</code>), a config that adds a <code>&lt;script&gt;</code>, an option that becomes a URL, etc.</td></tr>
+</tbody>
+</table>
+
+<h2>How <code>__proto__</code> pollution works (30-second refresher)</h2>
+<pre><code>const o = {};
+o.__proto__.polluted = 'yes';   // writes onto Object.prototype
+({}).polluted;                  // 'yes'  — a brand-new object inherits it!
+'default' || ({}).polluted;     // truthy defaults now come from the attacker</code></pre>
+<p>JavaScript objects inherit from <code>Object.prototype</code>. Write a property
+there and it becomes a <em>global default</em> for every object that lacks its own
+copy. Attackers turn a data-merge bug into control over code that reads
+"missing" options.</p>
+
+<h2>The lab gadget</h2>
+<p>This page loads <code>vuln_spa_proto.js</code>. It has:</p>
+<pre><code>// (1) pollution sink: a query parser that walks into __proto__
+unsafeParseQuery(location.search);   // ?__proto__[widgetHtml]=... pollutes
+
+// (2) gadget: renders a widget from config, defaulting to a prototype value
+function renderWidget(config) {
+  const html = config.widgetHtml || 'Welcome to your dashboard.';
+  box.innerHTML = html;              // SINK — html can come from the prototype
+}
+renderWidget({});                    // {} inherits widgetHtml after pollution</code></pre>
+<p>The developer believes <code>renderWidget({})</code> is safe: "the config is an
+empty object I created; nothing user-supplied." Prototype pollution breaks exactly
+that assumption.</p>
+
+<div class="card danger">
+<p><strong>Fire it.</strong> The payload lives entirely in the query string; the
+app reads a <em>default</em> it never thought was attacker-controlled:</p>
+<div class="payload">
+  <input id="u1" value="http://localhost:5000/m/module_14_proto/attack_11_proto.html?__proto__[widgetHtml]=<img src=x onerror=alert(document.domain)>">
+  <button class="copy" data-copy="#u1">copy</button>
+</div>
+<p><a href="?__proto__[widgetHtml]=<img src=x onerror=alert(document.domain)>">▶ reload this page with the pollution payload</a> — the widget below
+renders the attacker's HTML because <code>({}).widgetHtml</code> is now inherited
+from the polluted prototype.</p>
+</div>
+
+<h3>Live widget (the gadget's output)</h3>
+<div id="widget" class="card">Welcome to your dashboard.</div>
+<div class="card">
+<div><strong>Was the prototype polluted?</strong> <code id="pstate">—</code></div>
+<div><strong>Inherited <code>widgetHtml</code>:</strong> <code id="pval">—</code></div>
+<div><strong>HTML the gadget used:</strong> <code id="pused">—</code></div>
+<p><button id="clean" class="run">clean up pollution</button>
+<span class="lead">(prototype pollution persists for the page lifetime — click to
+reset before experimenting again)</span></p>
+</div>
+
+<h2>Why this class is nasty for defenders</h2>
+<ul>
+<li><strong>No injection point to find.</strong> Traditional XSS review looks for
+"where does user input reach a sink." Here the input reaches a <em>merge</em>,
+and the sink reads a <em>default</em>. The two may live in different files /
+libraries.</li>
+<li><strong>Gadgets hide in dependencies.</strong> A pollution sink in one library
+plus a gadget in another (or in a framework's own templating) yields XSS neither
+library's authors saw. Many real cases are library-vs-library.</li>
+<li><strong>It bypasses input-focused output encoding.</strong> The dangerous
+value is introduced <em>after</em> your input handling, as a property lookup.</li>
+</ul>
+
+<h2>The defense, precisely</h2>
+<div class="card safe">
+<ol>
+<li><strong>Kill the pollution sink:</strong> reject <code>__proto__</code>,
+<code>constructor</code>, <code>prototype</code> keys in any merge/parse; use
+<code>Map</code> instead of plain objects for untrusted key/value data; create
+config with <code>Object.create(null)</code> (no prototype to pollute).</li>
+<li><strong>Freeze the prototype:</strong> <code>Object.freeze(Object.prototype)</code>
+in a bootstrap script prevents writes to it entirely (measure app compatibility).</li>
+<li><strong>Kill the gadget:</strong> route DOM writes through Trusted Types so a
+polluted <code>widgetHtml</code> string is rejected at <code>innerHTML</code>
+(Module 17) — a capability control that stops the <em>second</em> half even if the
+first slips through.</li>
+<li><strong>Use safe JSON schema / validation</strong> for incoming config;
+prefer libraries hardened against prototype pollution and keep them updated.</li>
+</ol>
+</div>
+
+<h2>Checkpoint</h2>
+<div class="card">
+<ol>
+<li>Name the two halves a prototype-pollution XSS requires, and why fixing either
+one alone stops it.</li>
+<li>Why does output encoding of user input fail to prevent this class?</li>
+<li>How does Trusted Types neutralize the gadget half specifically?</li>
+</ol>
+</div>
+
+<footer>
+Module 14 of 19 · <a href="../module_15_chaining/">Next: Attack Chaining → ATO ▸</a><br>
+Pollution persists for the page's lifetime — use "clean up" between tries.
+</footer>
+<script src="../assets/lab.js"></script>
+<script src="../module_14_proto/vuln_spa_proto.js"></script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const result = window.ProtoDemo.run();
+  $("pstate").textContent = (({}).widgetHtml !== undefined) ? "YES" : "no";
+  $("pval").textContent = String(({}).widgetHtml);
+  $("pused").textContent = String(result.usedHtml);
+  $("clean").addEventListener("click", function () {
+    window.ProtoDemo.cleanup();
+    location.href = location.pathname; // reload without the query string
+  });
+})();
+</script>
+</body>
+</html>
