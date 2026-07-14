@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track C — The Background / Speculative Pipeline</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#a78bfa;--accent-2:#38bdf8}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="../index.html">◂ Research hub</a>
+  <a href="../track_b_parsing/index.html">◂ Track B</a>
+  <a href="../track_d_fiber/index.html">Track D ▸</a>
+</nav>
+
+<p class="kicker">Track C · Head First · C1–C5</p>
+<h1>The Background / Speculative Pipeline</h1>
+<p class="lead">Here's the part nearly everyone forgets: the browser starts
+<em>fetching things your markup mentions</em> before the main parser finishes and
+long before your JavaScript runs. Injected markup can act — leak, forge
+requests, prefetch — <strong>in that gap</strong>.</p>
+
+<div class="warn">
+<strong>Run this via the lab server</strong> (<code>python lab_server.py</code> →
+<a href="/research/track_c_speculative/">/research/track_c_speculative/</a>) so the
+demos can beacon to the same-origin <code>/collect</code> endpoint and you can see
+timing. Opened from disk, the explanations still apply but the live fetches
+won't reach localhost.</div>
+
+<!-- C1 -->
+<h2>C1 · The preload scanner (speculative parser)</h2>
+<p>While the main parser is blocked (e.g. on a synchronous script), a second,
+lightweight <strong>preload scanner</strong> races ahead through the raw byte
+stream looking for subresources — <code>&lt;img&gt;</code>,
+<code>&lt;script src&gt;</code>, <code>&lt;link&gt;</code> — and kicks off their
+fetches early. Two security facts:</p>
+<ul>
+<li>It sees the <strong>static, tokenized markup</strong>. Injected
+<code>&lt;img src&gt;</code> or a dangling-markup URL can begin fetching (and thus
+<em>exfiltrating</em>) <em>during parsing</em>, before any sanitizer JS runs.</li>
+<li>It generally can't see content that only later JavaScript injects — so
+timing determines whether the scanner acts on your payload.</li>
+</ul>
+
+<h3>▶ Live: prove a fetch happens from injected markup</h3>
+<p>This injects an <code>&lt;img&gt;</code> whose <code>src</code> points at the
+lab's <code>/collect</code> beacon, then reads the Resource Timing API to prove
+the browser fetched it. In a real reflected injection, the preload scanner would
+have started this <em>before</em> your defense code ran.</p>
+<div class="payload"><button id="c1btn" class="run">inject &lt;img&gt; → observe fetch</button></div>
+<div id="c1out" class="card">…</div>
+
+<!-- C2 -->
+<h2>C2 · Resource hints &amp; prefetching</h2>
+<table>
+<thead><tr><th>Hint</th><th>Effect</th><th>Abuse surface</th></tr></thead>
+<tbody>
+<tr><td><code>&lt;link rel=preconnect&gt;</code></td><td>open a connection early</td><td>leaks that a host will be contacted; connection to attacker host</td></tr>
+<tr><td><code>&lt;link rel=dns-prefetch&gt;</code></td><td>resolve DNS early</td><td>DNS-based exfiltration channel (survives some CSPs)</td></tr>
+<tr><td><code>&lt;link rel=preload&gt;</code></td><td>fetch a subresource now</td><td>attacker-chosen URL fetched with credentials; cache warming/poisoning signals</td></tr>
+<tr><td><code>&lt;link rel=prefetch&gt;</code></td><td>fetch a <em>future</em> navigation</td><td>request forgery to attacker URL; info leak</td></tr>
+<tr><td><code>modulepreload</code></td><td>fetch a JS module graph</td><td>early script-graph fetch</td></tr>
+<tr><td><code>103 Early Hints</code></td><td>server sends hints before the final response</td><td>hints emitted from attacker-influenced state</td></tr>
+</tbody>
+</table>
+<div class="card danger">
+<strong>The XSS link:</strong> even where script <em>execution</em> is blocked
+(strict CSP), injected <em>hint markup</em> can still perform an outbound request
+to an attacker host — an exfiltration/forgery primitive that lives entirely in
+the speculative pipeline. A complete defense must constrain <em>markup-driven
+network</em> (CSP <code>connect-src</code>/<code>prefetch-src</code>,
+<code>base-uri</code>), not only script.
+</div>
+<h3>▶ Live: an injected preload hint fetches</h3>
+<div class="payload"><button id="c2btn" class="run">inject &lt;link rel=preload&gt; → observe</button></div>
+<div id="c2out" class="card">…</div>
+
+<!-- C3 -->
+<h2>C3 · Speculation Rules API</h2>
+<p>The modern <code>&lt;script type="speculationrules"&gt;</code> API lets a page
+declare URLs to <strong>prefetch</strong> or <strong>prerender</strong> (fully
+render in the background). Security model:</p>
+<ul>
+<li>Prerendering runs a page's scripts in a hidden context — cross-origin
+prerender is heavily restricted, and prerendered pages are subject to their own
+CSP.</li>
+<li>An injected speculation-rules block could prefetch attacker URLs; it is
+<em>script-tagged</em>, so a nonce CSP that blocks unsanctioned inline scripts
+also blocks injected rules.</li>
+<li>State leakage: what a prerender is allowed to read/execute before activation
+is the security-relevant boundary.</li>
+</ul>
+<pre><code>&lt;script type="speculationrules"&gt;
+{ "prefetch": [{ "source": "list", "urls": ["/next"] }] }
+&lt;/script&gt;</code></pre>
+
+<!-- C4 -->
+<h2>C4 · Script scheduling &amp; <code>document.write</code> reentrancy</h2>
+<table>
+<thead><tr><th>Form</th><th>Parser behavior</th><th>Injection-timing consequence</th></tr></thead>
+<tbody>
+<tr><td>classic inline <code>&lt;script&gt;</code></td><td><strong>parser-blocking</strong>, runs at its position</td><td>reflected injection runs during initial parse (executes)</td></tr>
+<tr><td><code>&lt;script src&gt;</code> (no attr)</td><td>parser-blocking; fetch may be preloaded</td><td>external load can be early</td></tr>
+<tr><td><code>defer</code></td><td>runs after parsing, in order</td><td>runs after DOM built</td></tr>
+<tr><td><code>async</code></td><td>runs whenever it arrives</td><td>ordering non-deterministic</td></tr>
+<tr><td><code>type=module</code></td><td>deferred by default; own fetch graph</td><td><code>import()</code> is a script-URL sink</td></tr>
+<tr><td><code>document.write()</code></td><td>injects tokens into the <em>live</em> parse (reentrant)</td><td>a script that writes markup mid-parse can create sinks the scanner then acts on</td></tr>
+</tbody>
+</table>
+<p><strong>Why timing is a security property:</strong> the same payload string
+executes, defers, or never runs depending on <em>where and how</em> it enters the
+parse. A DOM-XSS via <code>document.write(location.hash)</code> injects into the
+parser stream itself — the preload scanner may fetch its subresources before the
+handler even finishes.</p>
+
+<!-- C5 -->
+<h2>C5 · CSP &amp; the parser</h2>
+<p>Where does policy enforcement sit relative to all this speculation?</p>
+<ul>
+<li><strong>Nonce/hash checks</strong> happen as elements are created during
+tree construction — an injected inline <code>&lt;script&gt;</code> without the
+nonce is refused at that point, regardless of how it was spelled (defeats
+obfuscation).</li>
+<li><strong><code>strict-dynamic</code></strong> lets a nonced script propagate
+trust to scripts <em>it</em> creates, removing the need for a host allowlist.</li>
+<li><strong>The preload scanner vs CSP:</strong> the scanner discovers
+subresources early, but the actual <em>fetch</em> is still subject to CSP
+fetch-directives (<code>script-src</code>, <code>img-src</code>,
+<code>connect-src</code>). So CSP can stop a speculative fetch — but only for the
+directives you actually set. <code>prefetch-src</code>/<code>default-src</code>
+coverage is the subtle part.</li>
+</ul>
+<div class="card safe">
+<div class="callout-title" style="color:#4ade80;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">✅ Track F hook</div>
+The fallback's threat model must include the <em>speculative</em> phase: a
+defense that only intercepts <code>innerHTML</code> in your React commit misses a
+reflected <code>&lt;img src&gt;</code> that the preload scanner already fetched.
+That's why Track F pairs a sink shim with a strict CSP (<code>connect-src</code>,
+<code>img-src</code>, <code>base-uri 'none'</code>) — the two cover different
+phases of the pipeline.
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>Give a payload that <em>exfiltrates</em> under a CSP that blocks all script
+execution. Which pipeline phase does it exploit, and which CSP directive stops
+it?</li>
+<li>Why can <code>document.write</code> create a sink the preload scanner then
+acts on, while <code>innerHTML</code> assignment later cannot?</li>
+<li>Where exactly is a nonce checked — tokenizer, tree construction, or fetch?
+Why does that make Module 12's obfuscation irrelevant for mechanism 1?</li>
+</ol>
+</div>
+
+<footer>
+Track C of F · <a href="../track_d_fiber/index.html">Next: React Fiber &amp; Reconciliation ▸</a><br>
+Live demos beacon to the lab's <code>/collect</code>; view hits at <a href="/callbacks">/callbacks</a>.
+</footer>
+
+<script>
+(function () {
+  function timingFor(url) {
+    const e = performance.getEntriesByType("resource").filter((r) => r.name.indexOf(url) !== -1);
+    return e.length ? e[e.length - 1] : null;
+  }
+  function report(id, url, note) {
+    setTimeout(() => {
+      const t = timingFor(url);
+      document.getElementById(id).innerHTML = t
+        ? `<div style="color:#4ade80">✔ Browser fetched <code>${url}</code></div>
+           <div class="lead">startTime ${t.startTime.toFixed(1)}ms · duration ${t.duration.toFixed(1)}ms · initiatorType <code>${t.initiatorType}</code></div>
+           <div class="lead">${note} See the hit at <a href="/callbacks">/callbacks</a>.</div>`
+        : `<div style="color:#f87171">No fetch recorded — are you running via the lab server (localhost:5000)? Opened from disk, the beacon can't reach the server.</div>`;
+    }, 600);
+  }
+  var c1 = document.getElementById("c1btn");
+  if (c1) c1.addEventListener("click", function () {
+    var u = "/collect?d=C1_preload_scanner_" + Date.now();
+    var img = document.createElement("img");
+    img.src = u; img.style.display = "none"; document.body.appendChild(img);
+    report("c1out", "/collect?d=C1_preload_scanner", "In a reflected injection the preload scanner would begin this fetch BEFORE your JS ran.");
+  });
+  var c2 = document.getElementById("c2btn");
+  if (c2) c2.addEventListener("click", function () {
+    var u = "/collect?d=C2_preload_hint_" + Date.now();
+    var link = document.createElement("link");
+    link.rel = "preload"; link.as = "image"; link.href = u; document.head.appendChild(link);
+    report("c2out", "/collect?d=C2_preload_hint", "An injected resource hint performs an outbound request even if script execution is blocked.");
+  });
+})();
+</script>
+</body>
+</html>
