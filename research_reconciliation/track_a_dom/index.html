@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track A — DOM Structure & the Inheritance Graph</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#38bdf8;--accent-2:#2dd4bf}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="../index.html">◂ Research hub</a>
+  <a href="../track_b_parsing/index.html">Track B ▸</a>
+</nav>
+
+<p class="kicker">Track A · Head First · A1–A5</p>
+<h1>DOM Structure &amp; the Inheritance Graph</h1>
+<p class="lead">Before you can say "React escapes this, so it's safe," you have to
+know <em>what a sink even is</em> and <em>which objects carry it</em>. The answer
+is an inheritance graph — and the sinks are scattered across it by mixins in ways
+that make "just audit the sinks" much harder than it sounds.</p>
+
+<div class="warn">
+<strong>Why start here?</strong> Every defense in Track F ultimately says "no
+untrusted string may reach a <em>sink</em>." That sentence is only precise if you
+can enumerate the sinks and know which interface each lives on. This track builds
+that enumeration from the live browser, not from memory.</div>
+
+<!-- ─────────────────────────── A1 ─────────────────────────── -->
+<h2>A1 · The node-type hierarchy</h2>
+<p>Every DOM object descends from <code>EventTarget</code>. The security-relevant
+spine:</p>
+<pre><code>EventTarget
+ └─ Node
+     ├─ Element ─ HTMLElement ─ HTMLAnchorElement, HTMLIFrameElement, HTMLScriptElement, …
+     ├─ CharacterData ─ Text, Comment, CDATASection, ProcessingInstruction
+     ├─ Document (─ HTMLDocument)
+     ├─ DocumentType
+     ├─ DocumentFragment ─ ShadowRoot
+     └─ Attr</code></pre>
+
+<p>The crucial security observation: <strong>sinks are inherited, and they're not
+uniform across the tree.</strong> <code>innerHTML</code> is defined on
+<code>Element</code> — so a <code>Text</code> node or a <code>Comment</code>
+simply has no <code>innerHTML</code>. <code>ShadowRoot extends
+DocumentFragment</code>, which is why a shadow root <em>does</em> get
+<code>innerHTML</code> (from a mixin) even though a plain fragment behaves
+differently.</p>
+
+<div class="card">
+<div class="callout-title" style="color:#38bdf8;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧠 Brain Power</div>
+Assigning <code>textNode.innerHTML = '&lt;img onerror&gt;'</code> — does that
+create an image element? (No. <code>Text</code> has no <code>innerHTML</code>
+setter; you're just adding an expando property. The string is inert. This is
+<em>why</em> moving data to a text node is a safe pattern.)
+</div>
+
+<h3>See the real chains</h3>
+<p>Below, the browser reports the actual prototype chain of each node type. This
+is <code>Object.getPrototypeOf</code> walked to the top — the inheritance graph,
+live:</p>
+<div id="chains" class="card">loading…</div>
+
+<!-- ─────────────────────────── A2 ─────────────────────────── -->
+<h2>A2 · Interface mixins &amp; IDL</h2>
+<p>WebIDL composes behavior with <strong>mixins</strong> — interface fragments
+that get "included" into many interfaces. This is why sink methods appear in
+several places:</p>
+<table>
+<thead><tr><th>Mixin</th><th>Contributes</th><th>Included by</th></tr></thead>
+<tbody>
+<tr><td><code>ParentNode</code></td><td><code>append</code>, <code>prepend</code>, <code>replaceChildren</code>, <code>querySelector</code></td><td>Element, Document, DocumentFragment</td></tr>
+<tr><td><code>ChildNode</code></td><td><code>before</code>, <code>after</code>, <code>replaceWith</code>, <code>remove</code></td><td>Element, CharacterData, DocumentType</td></tr>
+<tr><td><code>NonElementParentNode</code></td><td><code>getElementById</code></td><td>Document, DocumentFragment</td></tr>
+<tr><td><code>Slottable</code></td><td><code>assignedSlot</code></td><td>Element, Text</td></tr>
+<tr><td><code>DocumentOrShadowRoot</code></td><td><code>activeElement</code>, adopted stylesheets</td><td>Document, ShadowRoot</td></tr>
+<tr><td><code>GlobalEventHandlers</code></td><td><code>onclick</code>, <code>onerror</code>, … (IDL event-handler attrs)</td><td>HTMLElement, Document, Window</td></tr>
+<tr><td><code>ElementContentEditable</code></td><td><code>contentEditable</code>, <code>isContentEditable</code></td><td>HTMLElement</td></tr>
+</tbody>
+</table>
+<div class="card">
+<div class="callout-title" style="color:#38bdf8;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">💡 Why this matters for a defender</div>
+If your defense hooks <code>Element.prototype.append</code> but forgets that
+<code>DocumentFragment</code> and <code>Document</code> also get
+<code>append</code> from the same <code>ParentNode</code> mixin, you have a hole.
+A sound interception (Track F) must hook the <em>mixin-defining prototype</em>,
+or every interface that includes it. The matrix below shows exactly where each
+member is owned so you can't miss one.
+</div>
+
+<h3>The live sink-ownership matrix</h3>
+<p>Pick a sink class. Each cell names the interface that <em>owns</em> the member
+for that node — i.e. where you'd have to patch to intercept it.</p>
+<p><label class="lead">Sink class: <select id="sinkGroup" class="flt" style="max-width:260px"></select></label></p>
+<div id="sinkMatrix" class="card">loading…</div>
+
+<!-- ─────────────────────────── A3 ─────────────────────────── -->
+<h2>A3 · Live vs. static collections &amp; DOM clobbering</h2>
+<p><code>getElementsByTagName</code> returns a <strong>live</strong>
+<code>HTMLCollection</code>; <code>querySelectorAll</code> returns a
+<strong>static</strong> <code>NodeList</code>. The live/named-access machinery
+creates a distinct attack surface: <strong>DOM clobbering</strong>.</p>
+<ul>
+<li>Named property access on <code>document</code> and <code>window</code>: an
+element with <code>id=foo</code> or <code>name=foo</code> can become
+<code>window.foo</code>.</li>
+<li><code>document.forms</code>, <code>form.elements</code>, and
+<code>element[name]</code> resolve by attacker-controllable names.</li>
+<li>Injecting <em>markup only</em> (no script) can overwrite a global the app
+reads — e.g. <code>&lt;a id=config&gt;</code> makes <code>window.config</code> an
+element, defeating <code>if (window.config) use(window.config.url)</code>.</li>
+</ul>
+<div id="clobberOut" class="card"><em>running clobbering demo…</em></div>
+<div class="card">
+<div class="callout-title" style="color:#f87171;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">⚠️ The link to React</div>
+Clobbering is a <em>no-script</em> primitive that survives HTML sanitizers (the
+markup is "harmless" tags with <code>id</code>/<code>name</code>). If a React app
+reads a clobberable global or uses a library that does named lookups, sanitized
+UGC can still corrupt control flow — a Track E/F concern.
+</div>
+
+<!-- ─────────────────────────── A4 ─────────────────────────── -->
+<h2>A4 · Shadow DOM &amp; the composed tree</h2>
+<p>Shadow DOM introduces a second tree that composes with the light DOM at render
+time. Security-relevant facts:</p>
+<table>
+<thead><tr><th>Concept</th><th>Security consequence</th></tr></thead>
+<tbody>
+<tr><td><strong>open vs closed</strong> shadow roots</td><td><code>closed</code> hides <code>element.shadowRoot</code> (returns null) — encapsulation that also <em>hides</em> injected content from your scanners/sanitizers.</td></tr>
+<tr><td><strong>slot assignment</strong></td><td>Light-DOM nodes render inside a component's shadow tree; a sanitizer that reasons about the light tree misses where content actually lands.</td></tr>
+<tr><td><strong>event retargeting</strong></td><td>Events crossing the boundary have their <code>target</code> retargeted; handlers that trust <code>event.target</code>/composed path can be confused.</td></tr>
+<tr><td><strong><code>::part</code>/<code>::slotted</code></strong></td><td>Styling hooks that cross the boundary — CSS-injection surface.</td></tr>
+<tr><td><code>ShadowRoot.innerHTML</code></td><td>A full HTML-parsing sink (inherited via <code>InnerHTML</code> mixin on <code>ShadowRoot</code>) — Web Components frequently build their shadow tree from strings.</td></tr>
+</tbody>
+</table>
+<p><strong>Encapsulation cuts both ways:</strong> it can contain a component's
+XSS to its shadow tree, but a <em>closed</em> root can also hide an injected sink
+from a page-level defense that only walks the document.</p>
+
+<!-- ─────────────────────────── A5 ─────────────────────────── -->
+<h2>A5 · The trusted-boundary map</h2>
+<p>The synthesis: every member that can turn a string into markup, a navigation,
+or executing script — annotated with the interface it's inherited from. This is
+the master list your Track F defense must cover <em>completely</em>.</p>
+<table>
+<thead><tr><th>Sink</th><th>Class</th><th>Owned by (interface / mixin)</th><th>Turns a string into…</th></tr></thead>
+<tbody>
+<tr><td><code>innerHTML</code> / <code>outerHTML</code></td><td>HTML parse</td><td><code>Element</code> (<code>InnerHTML</code> mixin also on <code>ShadowRoot</code>)</td><td>a parsed subtree</td></tr>
+<tr><td><code>insertAdjacentHTML()</code></td><td>HTML parse</td><td><code>Element</code></td><td>a parsed subtree</td></tr>
+<tr><td><code>iframe.srcdoc</code></td><td>HTML parse (double-decode)</td><td><code>HTMLIFrameElement</code></td><td>a full document</td></tr>
+<tr><td><code>document.write()</code></td><td>HTML parse (into stream)</td><td><code>Document</code></td><td>tokens in the live parse</td></tr>
+<tr><td><code>DOMParser.parseFromString</code>, <code>range.createContextualFragment</code></td><td>HTML parse</td><td><code>DOMParser</code>, <code>Range</code></td><td>a detached tree</td></tr>
+<tr><td><code>a.href</code>, <code>*.src</code>, <code>form.action</code>, <code>button.formAction</code>, <code>svg xlink:href</code></td><td>URL / nav</td><td>respective <code>HTML*Element</code> (IDL reflected attrs)</td><td>a navigation target (→ <code>javascript:</code>)</td></tr>
+<tr><td><code>setAttribute(name, value)</code></td><td>URL / generic</td><td><code>Element</code></td><td>any reflected attribute (incl. the URL/handler ones)</td></tr>
+<tr><td><code>el.onclick=…</code>, <code>el.onerror=…</code></td><td>script</td><td><code>GlobalEventHandlers</code> mixin</td><td>an executable handler</td></tr>
+<tr><td><code>script.text</code> / <code>script.src</code></td><td>script</td><td><code>HTMLScriptElement</code></td><td>executing JS / a script URL</td></tr>
+<tr><td><code>eval</code>, <code>Function</code>, <code>setTimeout('str')</code></td><td>script</td><td><em>global</em> (not DOM, but a sink)</td><td>executing JS</td></tr>
+</tbody>
+</table>
+<div class="card safe">
+<strong>Contrast — the safe members:</strong> <code>textContent</code>,
+<code>createTextNode</code>, <code>setAttribute</code> on a <em>non-URL</em>
+attribute, <code>append(stringOrTextNode)</code> (appends text, does not parse).
+The whole game of a defense is: force untrusted data through the safe members, or
+through a <em>typed</em> chokepoint (Trusted Types, Track F) before it can reach
+any row above.
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>Using the live matrix, list every node type that owns an
+<code>append</code> — and name the single mixin responsible. Why does that make
+"patch <code>Element.prototype.append</code>" insufficient?</li>
+<li><code>ShadowRoot</code> has <code>innerHTML</code> but a plain
+<code>DocumentFragment</code>'s behavior differs — check the chains table and
+explain via the <code>InnerHTML</code> mixin.</li>
+<li>Give a <em>no-script</em> clobbering payload that defeats
+<code>if (window.config) load(window.config.src)</code>. Which sink class in A5
+is <em>not</em> involved (proving execution-only defenses miss it)?</li>
+</ol>
+</div>
+
+<footer>
+Track A of F · <a href="../track_b_parsing/index.html">Next: Parsing — bytes → tree ▸</a><br>
+The sink map here is the coverage target for the Track F defense.
+</footer>
+
+<script src="hierarchy_explorer.js"></script>
+</body>
+</html>
