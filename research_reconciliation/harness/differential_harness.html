@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Differential mXSS Harness — Track F Evaluation Rig</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#4ade80;--accent-2:#38bdf8}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="../index.html">◂ Research hub</a>
+  <a href="../track_f_fallback/index.html">◂ Track F</a>
+</nav>
+
+<p class="kicker">Track F · Evaluation rig · standalone (no build)</p>
+<h1>The Differential mXSS Harness</h1>
+<p class="lead">The oracle behind any defense claim: run
+<code>parse → serialize → reparse</code> to a fixed point over a corpus, and flag
+every string that is <strong>not idempotent</strong> or that <strong>regrows a
+handler/script</strong>. Then A/B a candidate sanitizer against the same corpus.</p>
+
+<div class="warn">Everything here uses the <strong>real browser parser</strong> via
+inert <code>&lt;template&gt;</code> — nothing executes. This page runs standalone;
+open it directly or via the lab server.</div>
+
+<div class="payload" style="flex-wrap:wrap">
+  <button id="run" class="run">run harness over corpus</button>
+  <label class="lead"><input type="checkbox" id="useSan"> apply candidate sanitizer (fixed-point)</label>
+</div>
+<div id="summary" class="card">Click "run".</div>
+
+<h2>Per-payload results</h2>
+<div id="results"></div>
+
+<h2>Add your own payloads</h2>
+<p>One per line. They're added to the corpus for this run.</p>
+<textarea id="extra" rows="4" style="width:100%;font-family:var(--mono);font-size:.82rem;background:var(--code-bg);color:#e6edf3;border:1px solid var(--border);border-radius:6px;padding:8px"><table><td><style></style><img src=x onerror=alert(1)></table></textarea>
+
+<footer>
+Track F evaluation rig · corpus seeds are mXSS/parser-differential classics; extend
+<code>CORPUS</code> and re-run. Pair with the Module 19 payload bank for full coverage.
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- corpus: mXSS / parser-differential seeds, tagged by class ----------
+  const CORPUS = [
+    { c: "noscript mXSS",     p: '<noscript><p title="</noscript><img src=x onerror=alert(1)>">' },
+    { c: "table foster",      p: '<table><td><style></style><img src=x onerror=alert(1)></table>' },
+    { c: "mglyph/mtext",      p: '<form><math><mtext></form><form><mglyph><style></math><img src onerror=alert(1)>' },
+    { c: "style RAWTEXT",     p: '<style><img src=x onerror=alert(1)></style>' },
+    { c: "svg/p/style chain", p: '<svg></p><style><a id="</style><img src=1 onerror=alert(1)>">' },
+    { c: "select mode",       p: '<select><style></select><img src=x onerror=alert(1)>' },
+    { c: "xmp raw",           p: '<xmp><img src=x onerror=alert(1)></xmp>' },
+    { c: "textarea RCDATA",   p: '<textarea><img src=x onerror=alert(1)></textarea>' },
+    { c: "template inert",    p: '<template><img src=x onerror=alert(1)></template>' },
+    { c: "listing entity",    p: '<listing>&lt;img src=x onerror=alert(1)&gt;</listing>' },
+    { c: "benign bold",       p: '<b>hello</b> <i>world</i>' },
+    { c: "benign link",       p: '<a href="https://example.com">ok</a>' },
+    { c: "plain img",         p: '<img src="/a.png" alt="pic">' },
+    { c: "raw script",        p: '<script>alert(1)</script>' },
+    { c: "svg script",        p: '<svg><script>alert(1)</script></svg>' },
+  ];
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  function serialize(str) {
+    const t = document.createElement("template");
+    t.innerHTML = str;
+    return t.innerHTML;
+  }
+  function hasDanger(str) {
+    const t = document.createElement("template");
+    t.innerHTML = str;
+    for (const el of t.content.querySelectorAll("*")) {
+      if (el.tagName === "SCRIPT") return true;
+      for (const a of el.attributes) if (/^on/i.test(a.name)) return true;
+    }
+    return false;
+  }
+
+  // The candidate sanitizer under test: a naive tag/attr stripper made
+  // mXSS-resistant ONLY by iterating to a fixed point. Swap this for DOMPurify
+  // etc. to evaluate a real defense.
+  function sanitizeOnce(str) {
+    const doc = new DOMParser().parseFromString(str, "text/html");
+    doc.querySelectorAll("script,iframe,object,embed,style").forEach((n) => n.remove());
+    doc.querySelectorAll("*").forEach((el) => {
+      [...el.attributes].forEach((a) => { if (/^on/i.test(a.name)) el.removeAttribute(a.name); });
+    });
+    return doc.body.innerHTML;
+  }
+  function sanitizeFixedPoint(str, max = 5) {
+    let cur = str;
+    for (let i = 0; i < max; i++) {
+      const next = sanitizeOnce(cur);
+      if (next === cur) return { out: cur, converged: true, iters: i + 1 };
+      cur = next;
+    }
+    return { out: "", converged: false, iters: max }; // refuse if not converged
+  }
+
+  // Round-trip idempotence check.
+  function roundTrip(str) {
+    const p1 = serialize(str);
+    const p2 = serialize(p1);
+    return { idempotent: p1 === p2, p1, p2 };
+  }
+
+  function analyze(str, useSan) {
+    let subject = str, sanNote = "";
+    if (useSan) {
+      const s = sanitizeFixedPoint(str);
+      subject = s.out;
+      sanNote = s.converged ? `sanitized (fixed point in ${s.iters})` : "REFUSED (did not converge)";
+    }
+    const rt = roundTrip(subject);
+    const dangerNow = hasDanger(subject);
+    const dangerAfterReparse = hasDanger(rt.p1);
+    return {
+      idempotent: rt.idempotent,
+      dangerNow, dangerAfterReparse,
+      // "escaped" = a defense that lets a handler survive OR regrow
+      escaped: dangerNow || dangerAfterReparse,
+      sanNote, subject, p1: rt.p1,
+    };
+  }
+
+  function run() {
+    const extra = document.getElementById("extra").value.split("\n").map((l) => l.trim()).filter(Boolean)
+      .map((p, i) => ({ c: "custom", p }));
+    const corpus = CORPUS.concat(extra);
+    const useSan = document.getElementById("useSan").checked;
+
+    let stable = 0, danger = 0, regrow = 0, escaped = 0;
+    const rows = corpus.map((item, i) => {
+      const r = analyze(item.p, useSan);
+      if (r.idempotent) stable++;
+      if (r.dangerNow) danger++;
+      if (!r.dangerNow && r.dangerAfterReparse) regrow++;
+      if (r.escaped) escaped++;
+      return `<tr>
+        <td>${esc(item.c)}</td>
+        <td><code>${esc(item.p).slice(0, 64)}</code></td>
+        <td style="color:${r.idempotent ? "#4ade80" : "#f87171"}">${r.idempotent}</td>
+        <td style="color:${r.dangerAfterReparse && !r.dangerNow ? "#f87171" : "#7a9bbf"}">${!r.dangerNow && r.dangerAfterReparse}</td>
+        <td style="color:${r.escaped ? "#f87171" : "#4ade80"}">${r.escaped ? "EXECUTES" : "inert"}</td>
+        <td class="lead">${esc(r.sanNote)}</td>
+      </tr>`;
+    }).join("");
+
+    document.getElementById("results").innerHTML =
+      `<table><thead><tr><th>class</th><th>payload</th><th>idempotent?</th><th>handler regrows?</th><th>verdict</th><th>note</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+    const n = corpus.length;
+    document.getElementById("summary").innerHTML = `
+      <table>
+      <tr><th>Corpus size</th><td>${n}</td></tr>
+      <tr><th>Idempotent under serialization</th><td>${stable}/${n} (${(100*stable/n|0)}%)</td></tr>
+      <tr><th>Dangerous as-is</th><td style="color:#f87171">${danger}</td></tr>
+      <tr><th>Handler <em>regrows</em> on reparse (pure mXSS)</th><td style="color:#f87171">${regrow}</td></tr>
+      <tr><th>Would EXECUTE (bypass rate)</th><td style="color:${escaped?'#f87171':'#4ade80'}">${escaped}/${n}</td></tr>
+      <tr><th>Defense</th><td>${useSan ? "candidate sanitizer (fixed-point) ON" : "OFF (baseline)"}</td></tr>
+      </table>
+      <p class="lead">Toggle the sanitizer and re-run: a sound defense drives
+      "would execute" to 0 <em>and</em> keeps the benign rows inert-but-present.
+      Non-idempotent rows are the mXSS candidates — the reason a fixed-point
+      sanitizer (Track F3) is required, not a single pass.</p>`;
+  }
+
+  document.getElementById("run").addEventListener("click", run);
+  run();
+})();
+</script>
+</body>
+</html>
