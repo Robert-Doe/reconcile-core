@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track D — React Internals: Fiber & Reconciliation</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#2dd4bf;--accent-2:#38bdf8}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="../index.html">◂ Research hub</a>
+  <a href="../track_c_speculative/index.html">◂ Track C</a>
+  <a href="../track_e_react_xss/index.html">Track E ▸</a>
+</nav>
+
+<p class="kicker">Track D · Head First · D1–D5</p>
+<h1>React Internals: Fiber &amp; Reconciliation</h1>
+<p class="lead">To defend React you must know the <em>exact line</em> where a
+string becomes DOM. That line is in the <strong>commit phase</strong> of the
+reconciler, inside the <code>react-dom</code> host config. Everything before it
+is bookkeeping; everything dangerous happens there.</p>
+
+<!-- D1 -->
+<h2>D1 · Element → Fiber</h2>
+<p>JSX compiles to <code>React.createElement(type, props, ...children)</code>,
+which returns a plain <strong>element</strong> object (a description, not a
+node). React turns each element into a <strong>fiber</strong> — a unit of work:</p>
+<pre><code>fiber = {
+  type,            // 'div' | FunctionComponent | ...
+  pendingProps, memoizedProps,
+  stateNode,       // the actual DOM node (for host components)
+  child, sibling, return,   // the fiber tree links
+  alternate,       // the fiber from the OTHER tree (double buffering)
+  flags,           // effect tags: Placement, Update, Deletion, ...
+  lanes,           // scheduling priority
+}</code></pre>
+<p>React keeps <strong>two</strong> fiber trees: <code>current</code> (on screen)
+and <code>workInProgress</code> (being built). They point at each other via
+<code>alternate</code>. This <strong>double-buffering</strong> is why React can
+build a whole update off-screen and swap it atomically — and why a security
+invariant must hold on the WIP tree <em>before</em> commit.</p>
+
+<!-- D2 -->
+<h2>D2 · The reconciliation algorithm</h2>
+<p>Reconciliation diffs the new element tree against the current fiber tree using
+two heuristics (O(n) instead of O(n³)):</p>
+<ol>
+<li><strong>Different type ⇒ replace subtree.</strong> <code>&lt;div&gt;</code> →
+<code>&lt;span&gt;</code> tears down and rebuilds.</li>
+<li><strong>Same type ⇒ keep the node, update props</strong> (a "bailout" from
+recreation). <strong>Keys</strong> match children across reorderings.</li>
+</ol>
+<p>Work happens in two phases: <strong>render</strong> (<code>beginWork</code> /
+<code>completeWork</code> build the WIP tree and mark effects — <em>no DOM
+touched, interruptible</em>) and <strong>commit</strong> (<code>commitWork</code>
+applies effects to the DOM — <em>synchronous, not interruptible</em>).</p>
+
+<h3>▶ Live: a toy reconciler (see the phases &amp; the sink)</h3>
+<p>This is a ~150-line React-shaped reconciler. Watch the render-phase diff
+decisions (PLACEMENT/UPDATE/DELETION with keys) and — importantly — the
+<strong>commit phase log where a prop becomes a DOM sink</strong>.</p>
+<div class="payload">
+  <button id="d2render" class="run">render list v1</button>
+  <button id="d2update" class="copy">reorder + change type (v2)</button>
+  <button id="d2danger" class="copy">render a dangerouslySetInnerHTML node</button>
+</div>
+<div class="card"><strong>Reconciler log:</strong><pre id="d2log">click "render list v1"</pre></div>
+<div class="card"><strong>Rendered output (toy):</strong><div id="d2out" style="background:#fff;color:#111;padding:8px;border-radius:6px"></div></div>
+<p class="lead">The last button routes an object through <code>setProp</code> — our
+"host config" — and you'll see <code>dom.innerHTML = …  &lt;-- HTML SINK</code> in
+the log. <strong>That single function is the Track F interception point.</strong></p>
+
+<!-- D3 -->
+<h2>D3 · Concurrent scheduling</h2>
+<p>Concurrent React can <strong>interrupt</strong>, <strong>pause</strong>, and
+<strong>replay</strong> the render phase using <strong>lanes</strong> (priority
+bitmasks). <code>useTransition</code>, <code>Suspense</code>, and time-slicing
+all rely on the render phase being <em>pure and restartable</em>.</p>
+<div class="card danger">
+<strong>Security angle:</strong> because render can run multiple times before
+commit, any side-effect or security check you put in render may run 0, 1, or many
+times — never rely on render-phase effects for a security invariant. The invariant
+must be enforced at <strong>commit</strong> (the single, synchronous DOM-mutation
+point), which is exactly why Track F hooks the host config, not component code.
+Interruption/replay must not be able to smuggle an unchecked value to commit.
+</div>
+
+<!-- D4 -->
+<h2>D4 · The DOM host config</h2>
+<p><code>react-dom</code> plugs a <strong>host config</strong> into the reconciler.
+Its commit-time functions — <code>createInstance</code>,
+<code>setInitialProperties</code>, <code>updateProperties</code>,
+<code>commitUpdate</code> — are where props become DOM. Key behaviors:</p>
+<table>
+<thead><tr><th>Host-config behavior</th><th>Security relevance</th></tr></thead>
+<tbody>
+<tr><td><strong>attribute vs. property routing</strong></td><td>React decides per-prop whether to call <code>setAttribute</code> or assign a DOM property; URL props (<code>href</code>/<code>src</code>) and <code>dangerouslySetInnerHTML</code> take special paths.</td></tr>
+<tr><td><strong><code>dangerouslySetInnerHTML</code></strong></td><td>routed straight to <code>node.innerHTML</code> with no escaping — the primary sink (Track E1).</td></tr>
+<tr><td><strong>event delegation at the root</strong></td><td>React attaches ONE listener per event type at the root and dispatches synthetically; <code>on*</code> props are <em>not</em> inline DOM handlers, which is why JSX <code>onClick</code> is safe — but spread <code>{...props}</code> can still inject a real <code>onerror</code> if it reaches the attribute path (E3).</td></tr>
+<tr><td><strong>hydration</strong></td><td>on the client, React <em>adopts</em> server-rendered DOM instead of creating it — a different code path with its own risks (D5, E4).</td></tr>
+</tbody>
+</table>
+
+<!-- D5 -->
+<h2>D5 · Server rendering &amp; hydration</h2>
+<p><code>renderToString</code> / <code>renderToPipeableStream</code> produce an
+HTML <em>string</em> on the server; the client then <strong>hydrates</strong> —
+attaches fibers/handlers to the existing DOM without recreating it.</p>
+<ul>
+<li>SSR text/attributes are escaped by React's string renderer — but the same
+escape-hatch sinks apply (<code>dangerouslySetInnerHTML</code>, URL props).</li>
+<li><strong>Hydration mismatch:</strong> if server and client render different
+markup, React reconciles the difference; historically, mismatches around
+raw-HTML/attribute boundaries have produced injection (E5).</li>
+<li><strong>Embedded state:</strong> SSR frameworks serialize data into an inline
+<code>&lt;script&gt;</code> (<code>__NEXT_DATA__</code>,
+<code>__INITIAL_STATE__</code>) — a <code>&lt;/script&gt;</code>-breakout sink
+that lives <em>outside</em> React's escaping (E4).</li>
+</ul>
+
+<div class="card safe">
+<div class="callout-title" style="color:#4ade80;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">✅ The one sentence to carry into Track E &amp; F</div>
+React's escaping happens in the <em>host config at commit</em> for text and most
+attributes — so every XSS in React is a place where data reaches the DOM
+<em>bypassing</em> that path: an explicit escape hatch, a special-cased prop, SSR
+string embedding, or a post-commit mutation. Track F wraps the host config so
+those paths become typed chokepoints.
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>Using the toy reconciler, produce a log that shows a type change tearing down
+a subtree (PLACEMENT after DELETION). Why does React not "update across" a type
+change?</li>
+<li>Why must a security invariant be enforced at <em>commit</em>, not in a
+component's render? Tie it to D3 interruption/replay.</li>
+<li>Name the four host-config paths a string can take to the DOM, and which one
+<code>dangerouslySetInnerHTML</code> uses.</li>
+</ol>
+</div>
+
+<footer>
+Track D of F · <a href="../track_e_react_xss/index.html">Next: React's XSS surface ▸</a><br>
+The toy <code>setProp</code> here mirrors the real host config the Track F shim wraps.
+</footer>
+
+<script src="mini_reconciler.js"></script>
+<script>
+(function () {
+  const { h, render } = window.MiniReconciler;
+  const out = document.getElementById("d2out");
+  const logEl = document.getElementById("d2log");
+  let prev = null;
+  function show(res) { logEl.textContent = res.log.join("\n"); prev = res.fiber; }
+
+  document.getElementById("d2render").addEventListener("click", function () {
+    const el = h("ul", null,
+      h("li", { key: "a" }, "Alice"),
+      h("li", { key: "b" }, "Bob"),
+      h("li", { key: "c" }, "Carol"));
+    show(render(el, out, null));
+  });
+  document.getElementById("d2update").addEventListener("click", function () {
+    const el = h("ul", null,
+      h("li", { key: "c" }, "Carol"),      // reordered (key match -> UPDATE)
+      h("span", { key: "a" }, "Alice!"),   // type changed li->span (PLACEMENT)
+      h("li", { key: "b" }, "Bob"));       // 'd' removed -> DELETION if existed
+    show(render(el, out, prev));
+  });
+  document.getElementById("d2danger").addEventListener("click", function () {
+    const el = h("div", { dangerouslySetInnerHTML: { __html: "<img src=x onerror=alert(1)>" } });
+    show(render(el, out, null));
+  });
+})();
+</script>
+</body>
+</html>
