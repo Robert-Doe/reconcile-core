@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track F — Designing the In-Browser Fallback</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#4ade80;--accent-2:#38bdf8}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="../index.html">◂ Research hub</a>
+  <a href="../track_e_react_xss/index.html">◂ Track E</a>
+  <a href="../harness/differential_harness.html">Differential harness ▸</a>
+  <a href="../react-lab/">React lab ▸</a>
+</nav>
+
+<p class="kicker">Track F · Head First · F1–F6 · the payoff</p>
+<h1>Designing the In-Browser Fallback</h1>
+<p class="lead">Everything so far was reconnaissance. Now we build the defense the
+whole course points at: an in-browser layer that makes untrusted strings unable to
+reach a sink <em>by construction</em>, holds across the mXSS frontier, and is
+<em>evaluable</em>. This is your thesis core.</p>
+
+<!-- F1 -->
+<h2>F1 · Threat model &amp; invariants</h2>
+<div class="card">
+<p><strong>Assumptions (state yours explicitly).</strong></p>
+<ul>
+<li><strong>Untrusted data, honest-but-buggy app.</strong> The app's code isn't
+malicious, but it will occasionally forget to sanitize, or a dependency will
+open a sink. Attacker controls <em>data</em> (props, URL, storage, SSR JSON), not
+the bundle.</li>
+<li><strong>Out of scope:</strong> a fully attacker-controlled bundle (that's
+supply-chain, needs SRI/isolation — Track C/Module 16), and native/extension
+code.</li>
+</ul>
+<p><strong>The invariant to enforce:</strong></p>
+<blockquote>No value reaches an HTML/URL/script sink (the Track&nbsp;A5 map)
+unless it is either (a) a policy-produced <em>typed</em> value, or (b) sanitized
+to a serialization <em>fixed point</em>. Otherwise the sink <strong>throws</strong>
+(fail-closed).</blockquote>
+</div>
+
+<!-- F2 -->
+<h2>F2 · Trusted Types — the backbone</h2>
+<p>Trusted Types change the <em>type contract</em> of the sinks: with
+<code>require-trusted-types-for 'script'</code>, <code>innerHTML</code> &amp;
+friends reject plain strings and demand a <code>TrustedHTML</code> produced by a
+named policy. That policy is your single audit chokepoint.</p>
+<pre><code>// react-lab/src/fallback/trustedTypesPolicy.js
+const policy = trustedTypes.createPolicy('app#html', {
+  createHTML: (s) =&gt; sanitizeToFixedPoint(s),         // F3
+  createScriptURL: (u) =&gt; allowlistUrl(u),
+  createScript: () =&gt; { throw new Error('no dynamic script'); },
+});</code></pre>
+<p><strong>Wiring React through it:</strong> React's host config assigns
+<code>dangerouslySetInnerHTML.__html</code> to <code>innerHTML</code>. Under
+enforced Trusted Types, that assignment must be a <code>TrustedHTML</code> — so we
+make React's DOM path (or a shim over it, F4) route through
+<code>policy.createHTML</code>. Now the "dangerous" hatch is forced through your
+sanitizer, and a <em>missed</em> sanitize fails closed instead of open.</p>
+<div class="card">
+<div class="callout-title" style="color:#4ade80;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧠 Brain Power</div>
+Trusted Types closes DOM sinks (Track A5 mechanism 4) categorically. Which sinks
+does it <em>not</em> cover? (Server-reflected mechanism-1 HTML in the initial
+document, and markup-driven network from the speculative pipeline — F5's CSP
+covers those. No single control covers all phases; you layer.)
+</div>
+
+<!-- F3 -->
+<h2>F3 · Sanitizer API + fallback, mXSS-resistant</h2>
+<p>Inside <code>createHTML</code> you need a sanitizer that is <strong>idempotent
+under re-serialization</strong> — otherwise E6/mXSS defeats you.</p>
+<pre><code>// react-lab/src/fallback/sanitize.js  (sketch)
+function sanitizeOnce(s) {
+  if (window.Sanitizer &amp;&amp; Element.prototype.setHTML) {   // native Sanitizer API
+    const t = document.createElement('template');
+    t.setHTML(s, { sanitizer: SAFE_CONFIG });
+    return t.innerHTML;
+  }
+  return DOMPurify.sanitize(s, PURIFY_CONFIG);              // polyfill
+}
+function sanitizeToFixedPoint(s, max = 4) {                 // the mXSS fix
+  let cur = sanitizeOnce(s);
+  for (let i = 0; i &lt; max; i++) {
+    const next = sanitizeOnce(cur);
+    if (next === cur) return cur;   // reached a fixed point -> stable on reparse
+    cur = next;
+  }
+  return '';                        // didn't converge -> refuse (fail closed)
+}</code></pre>
+<p><strong>Where to intercept in React:</strong> the commit phase (Track D). The
+sanitize must run <em>at the sink</em>, in the <em>insertion context</em> (Track
+B5), not once at input — otherwise second-order/context-mismatch bugs slip
+through.</p>
+
+<!-- F4 -->
+<h2>F4 · Interception architecture (the design decision)</h2>
+<table>
+<thead><tr><th>Approach</th><th>Pros</th><th>Cons</th></tr></thead>
+<tbody>
+<tr><td><strong>Monkey-patch sinks</strong> (wrap <code>Element.prototype</code> setters, Track A2 mixins)</td><td>framework-agnostic; covers non-React sinks; works with no CSP</td><td>fragile vs. spec growth; must cover every mixin owner; perf on hot setters</td></tr>
+<tr><td><strong>Host-config shim</strong> (wrap react-dom's <code>setInitialProperties</code>/<code>commitUpdate</code>)</td><td>precise; runs exactly at commit; minimal surface</td><td>React-version-coupled; misses non-React sinks</td></tr>
+<tr><td><strong>Trusted Types + policy</strong> (browser-enforced)</td><td>fail-closed; one audit surface; obfuscation-proof</td><td>Chromium-centric today; needs the polyfill/shim elsewhere (this is the "fallback")</td></tr>
+<tr><td><strong>Service worker / CSP layer</strong></td><td>covers network/egress &amp; the speculative phase</td><td>doesn't see in-page DOM sinks</td></tr>
+</tbody>
+</table>
+<div class="card safe">
+<strong>The recommended stack (what react-lab implements):</strong> Trusted Types
+where available → its policy runs <code>sanitizeToFixedPoint</code> → a
+<em>host-config/prototype shim</em> provides the same typed chokepoint as a
+<strong>fallback</strong> in non-Chromium browsers and for non-React sinks →
+strict nonce CSP as the network/speculative backstop. Each layer covers a phase
+the others can't.
+</div>
+<h3>Performance note (commit-phase cost)</h3>
+<p>The shim runs on every host-prop commit. Keep the fast path free: only
+HTML/URL/script props hit the sanitizer; everything else is a type-check and
+pass-through. Measure µs/commit and page-load delta (F6 metrics).</p>
+
+<!-- F5 -->
+<h2>F5 · CSP as defense-in-depth</h2>
+<pre><code>Content-Security-Policy:
+  require-trusted-types-for 'script';
+  trusted-types app#html;
+  script-src 'nonce-RANDOM' 'strict-dynamic';
+  object-src 'none'; base-uri 'none';
+  connect-src 'self'; img-src 'self';        &lt;- blunt the speculative-phase exfil (Track C)</code></pre>
+<p>The CSP does what the sink shim can't: refuses inline/injected script
+regardless of spelling (mechanism 1/2), and constrains markup-driven network from
+the preload scanner (Track C). Add <code>Content-Security-Policy-Report-Only</code>
+first to find violations without breaking the app.</p>
+
+<!-- F6 -->
+<h2>F6 · The evaluation harness</h2>
+<p>A defense claim is only credible with a corpus and an oracle. Two pieces,
+both shipped:</p>
+<ul>
+<li><strong>Corpus</strong> — the 120-payload bank (Module 19) + the mXSS/parser-
+differential seeds here, tagged by mechanism. <code>react-lab/src/corpus/</code>.</li>
+<li><strong>Differential oracle</strong> — <a href="../harness/differential_harness.html">the
+standalone harness</a> runs <code>parse → serialize → reparse</code> to a fixed
+point and flags non-idempotent strings and handler regrowth. Also embedded live in
+the React lab.</li>
+</ul>
+<table>
+<thead><tr><th>Metric</th><th>What it measures</th><th>Target</th></tr></thead>
+<tbody>
+<tr><td><strong>Coverage</strong> (per mechanism)</td><td>fraction of corpus neutralized, broken out by Track A5 sink class</td><td>100% of in-scope mechanisms</td></tr>
+<tr><td><strong>Bypass rate</strong></td><td>payloads that still execute with the defense on</td><td>0 in-scope</td></tr>
+<tr><td><strong>Idempotence</strong></td><td>sanitizer output is a serialization fixed point</td><td>always (else refuse)</td></tr>
+<tr><td><strong>Compatibility</strong></td><td>% of a benign-HTML corpus rendered unchanged</td><td>maximize; report regressions</td></tr>
+<tr><td><strong>Performance</strong></td><td>µs per commit; page-load delta</td><td>bounded, reported</td></tr>
+</tbody>
+</table>
+<div class="card">
+<div class="callout-title" style="color:#4ade80;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">📌 The falsifiable claim</div>
+State it as an invariant, not a blocklist: <em>"Every value reaching an A5 sink is
+a policy-produced typed value or a re-serialization fixed point; otherwise the
+sink throws. Evaluated over corpus C (N payloads) with 0 in-scope bypasses, X%
+benign compatibility, Y µs/commit."</em> A reviewer refutes it by breaking the
+invariant, not by finding "one more payload."
+</div>
+
+<h2>Build &amp; run it</h2>
+<pre><code>cd research_reconciliation/react-lab
+npm install
+npm run dev        # vulnerable components + fallback toggle + live harness
+npm run evaluate   # headless-ish: prints the corpus coverage report</code></pre>
+
+<h2>Sharpen your pencil (your thesis worksheet)</h2>
+<div class="card">
+<ol>
+<li>State your invariant and your assumption set (F1). Which mechanisms are in
+scope; which do you delegate to CSP?</li>
+<li>Pick an interception approach (F4) and justify it against deployability
+(non-Chromium? no CSP? third-party widgets?).</li>
+<li>Run the harness over the corpus with the fallback off, then on. Report
+coverage per mechanism, bypass rate, and commit cost. That table is your results
+section.</li>
+</ol>
+</div>
+
+<footer>
+Track F of F · <a href="../react-lab/">Build the React lab ▸</a> · <a href="../harness/differential_harness.html">Open the differential harness ▸</a><br>
+This is the payoff the entire course was built to support.
+</footer>
+</body>
+</html>
