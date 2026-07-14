@@ -1,0 +1,24 @@
+/* module.css — per-module accent for Module 02 (dark theme).
+   Loaded AFTER lab.css; overrides the accent variables so this module has its
+   own identity (ribbon, heading bar, chip, links). */
+
+:root { --accent: #fb923c; --accent-2: #f5c842; }
+
+body { border-top-color: #fb923c; }
+.kicker { color: #fb923c; }
+h1 { border-left-color: #fb923c; }
+h2 { border-bottom-color: rgba(30,58,95,.9); }
+h3 { color: #fb923c; }
+
+/* Module chip in front of the kicker. */
+.kicker::before {
+  content: "M02";
+  display: inline-block;
+  background: #fb923c;
+  color: #0b0f1a;
+  border-radius: 999px;
+  padding: 1px 9px;
+  margin-right: 9px;
+  font-weight: 700;
+  font-size: .72rem;
+}
