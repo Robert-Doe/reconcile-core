@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track E — React's XSS Surface</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#f87171;--accent-2:#38bdf8}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="../index.html">◂ Research hub</a>
+  <a href="../track_d_fiber/index.html">◂ Track D</a>
+  <a href="../track_f_fallback/index.html">Track F ▸</a>
+  <a href="../react-lab/">React lab ▸</a>
+</nav>
+
+<p class="kicker">Track E · Head First · E1–E6</p>
+<h1>React's XSS Surface</h1>
+<p class="lead">React escapes text and attributes by default. So how does XSS
+still happen? This track enumerates <strong>every</strong> place data reaches the
+DOM <em>bypassing</em> that escaping. The runnable <a href="../react-lab/">React
+lab</a> demonstrates each one live, next to the fix.</p>
+
+<div class="warn">
+<strong>Run the companion app:</strong> <code>cd research_reconciliation/react-lab
+&amp;&amp; npm install &amp;&amp; npm run dev</code>. Each section below maps to a
+component in <code>react-lab/src/vulns/</code>.</div>
+
+<!-- E1 -->
+<h2>E1 · <code>dangerouslySetInnerHTML</code> — the primary sink</h2>
+<p>The one explicit escape hatch. In the host config it routes straight to
+<code>node.innerHTML</code> (you saw the exact line in Track D's toy reconciler),
+so it bypasses <em>all</em> of React's escaping:</p>
+<pre><code>// react-lab/src/vulns/E1_DangerouslySetInnerHTML.jsx
+&lt;div dangerouslySetInnerHTML={{ __html: userSuppliedHtml }} /&gt;
+// userSuppliedHtml = '&lt;img src=x onerror=alert(document.domain)&gt;'  -> executes</code></pre>
+<p>The name is a warning, not a joke. Any data reaching <code>__html</code> must
+be sanitized <em>and</em> mXSS-resistant (E6). This is why Track F makes even this
+hatch pass through a typed policy.</p>
+
+<!-- E2 -->
+<h2>E2 · Auto-escaping and its limits</h2>
+<p>JSX escapes <strong>text children</strong> and <strong>string attribute
+values</strong> (<code>&lt;</code>, <code>&gt;</code>, <code>&amp;</code>,
+<code>"</code>, <code>'</code>). It does <strong>not</strong> understand
+<em>semantics</em>. The gaps:</p>
+<table>
+<thead><tr><th>Gap</th><th>Why escaping doesn't help</th><th>Payload</th></tr></thead>
+<tbody>
+<tr><td><code>href</code>/<code>src</code>/<code>xlink:href</code> URLs</td><td>a <code>javascript:</code> URL contains no HTML metacharacters to escape</td><td><code>&lt;a href={userUrl}&gt;</code> with <code>javascript:alert(1)</code></td></tr>
+<tr><td><code>style</code> object/string</td><td>CSS injection (<code>expression()</code> legacy, exfil via <code>url()</code>)</td><td><code>style={{background:`url(${x})`}}</code></td></tr>
+<tr><td><code>&lt;iframe srcDoc&gt;</code></td><td>srcDoc is an HTML document sink</td><td><code>srcDoc={userHtml}</code></td></tr>
+<tr><td><code>on*</code> via spread (E3)</td><td>a real DOM handler if it hits the attribute path</td><td><code>{...{'dangerouslySetInnerHTML':…}}</code> or an attribute-routed handler</td></tr>
+</tbody>
+</table>
+<p>Since React 16 a <code>javascript:</code> URL in <code>href</code> logs a
+warning, and recent React may neutralize some — but this is version-dependent and
+<em>not</em> guaranteed across all URL props/renderers. Never rely on it; validate
+the scheme yourself (see <code>react-lab/src/vulns/E2_UrlAndStyle.jsx</code>).</p>
+
+<!-- E3 -->
+<h2>E3 · Prop spreading &amp; injection</h2>
+<p><code>&lt;div {...props} /&gt;</code> where <code>props</code> comes from
+untrusted data is a footgun: whatever keys the attacker controls become
+attributes/props. If the object contains <code>dangerouslySetInnerHTML</code>, or
+an attribute-routed handler, or a URL prop, spreading injects it:</p>
+<pre><code>const props = JSON.parse(untrusted); // { dangerouslySetInnerHTML: { __html: '&lt;img onerror&gt;' } }
+&lt;div {...props} /&gt;   // sink reached via spread</code></pre>
+<p><code>ref</code>/handler smuggling: an object shaped like React internals, or a
+function-valued prop that a component forwards to a DOM node, can reintroduce a
+handler. Lesson: <strong>never spread untrusted objects onto host elements.</strong>
+(See <code>E3_PropSpread.jsx</code>.)</p>
+
+<!-- E4 -->
+<h2>E4 · SSR-specific XSS</h2>
+<p>Server frameworks embed state in an inline <code>&lt;script&gt;</code> for the
+client to hydrate. That JSON is <em>not</em> in a React-escaped context — it's raw
+text inside <code>&lt;script&gt;</code>:</p>
+<pre><code>&lt;script&gt;window.__INITIAL_STATE__ = {"bio":"&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;"}&lt;/script&gt;</code></pre>
+<ul>
+<li><strong><code>&lt;/script&gt;</code> breakout:</strong> a string containing
+<code>&lt;/script&gt;</code> closes the tag early. Fix: escape <code>&lt;/</code>,
+<code>&lt;!--</code>, and U+2028/U+2029 in embedded JSON.</li>
+<li><strong>Framework data blobs:</strong> Next.js <code>__NEXT_DATA__</code>,
+Redux preloaded state, etc. — same class. Frameworks mostly handle it now, but
+<em>custom</em> embedding is a frequent bug.</li>
+</ul>
+<p>See <code>E4_SsrStateEmbedding.jsx</code> (renders both the vulnerable and the
+correctly-escaped serialization so you can diff them).</p>
+
+<!-- E5 -->
+<h2>E5 · Ecosystem sinks</h2>
+<table>
+<thead><tr><th>Source</th><th>Sink shape</th></tr></thead>
+<tbody>
+<tr><td>Markdown renderers</td><td>emit raw HTML → often fed to <code>dangerouslySetInnerHTML</code> without sanitizing</td></tr>
+<tr><td>"rich text" / WYSIWYG</td><td>store &amp; render HTML; classic stored-XSS if unsanitized</td></tr>
+<tr><td>Components with a raw-HTML prop</td><td><code>&lt;Tooltip html={x}/&gt;</code>, chart labels, i18n with HTML</td></tr>
+<tr><td><code>react-router</code> / navigation</td><td>user-controlled <code>to</code>/<code>href</code> → <code>javascript:</code></td></tr>
+<tr><td>Hydration mismatch</td><td>server/client divergence around raw HTML boundaries</td></tr>
+</tbody>
+</table>
+<p>These are the <em>most common real-world React XSS</em> — the app's own code is
+fine, but a dependency opens a hole. (See <code>E5_MarkdownAndProps.jsx</code>.)</p>
+
+<!-- E6 -->
+<h2>E6 · mXSS meets React</h2>
+<p>The subtle finale. Even if you sanitize the string you pass to
+<code>dangerouslySetInnerHTML</code>, React just assigns it to
+<code>innerHTML</code> — and the browser <strong>re-parses</strong> it. If your
+sanitized string is not a serialization <em>fixed point</em> (Track B6), the
+re-parse can regrow a handler. <strong>Sanitize-then-React is still unsafe</strong>
+unless the sanitizer is mutation-aware and idempotent.</p>
+<div class="card danger">
+<strong>Why this defeats the obvious fix.</strong> "We run DOMPurify before
+<code>dangerouslySetInnerHTML</code>" is necessary but not sufficient across all
+sanitizer versions/configs — the mXSS frontier moves. Track F's answer: sanitize
+to a fixed point <em>and</em> route through Trusted Types so a non-typed value
+can't reach the sink at all. (See <code>E6_MutationXSS.jsx</code>, which pipes the
+Track B round-trip oracle over the sanitizer output.)
+</div>
+
+<h2>The cross-library view (CSR libraries, plural)</h2>
+<table>
+<thead><tr><th>Library</th><th>Primary escape hatch</th><th>URL sink</th></tr></thead>
+<tbody>
+<tr><td>React</td><td><code>dangerouslySetInnerHTML</code></td><td><code>href</code>/<code>src</code> props</td></tr>
+<tr><td>Vue</td><td><code>v-html</code></td><td><code>:href</code> bindings</td></tr>
+<tr><td>Angular</td><td><code>[innerHTML]</code> + <code>bypassSecurityTrustHtml</code></td><td><code>bypassSecurityTrustUrl</code></td></tr>
+<tr><td>Svelte</td><td><code>{@html …}</code></td><td>attribute bindings</td></tr>
+</tbody>
+</table>
+<p>All four share the same shape: a default-escaped path plus an explicit
+"trust me" hatch and special-cased URL/HTML sinks. A defense at the
+<em>DOM sink layer</em> (Track F) therefore protects all of them, which is why the
+fallback is framed at the host/DOM boundary, not inside React.</p>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>In the React lab, make E1 execute, then switch on the fallback and confirm it
+throws instead. What type did the sink demand?</li>
+<li>Give a payload that beats E2's URL escaping but not a scheme allowlist.</li>
+<li>Explain why sanitizing before <code>dangerouslySetInnerHTML</code> is
+necessary but not sufficient (E6). What extra property must the sanitizer have?</li>
+</ol>
+</div>
+
+<footer>
+Track E of F · <a href="../track_f_fallback/index.html">Next: Designing the in-browser fallback ▸</a><br>
+Live demos: <a href="../react-lab/">react-lab</a> (<code>npm run dev</code>).
+</footer>
+</body>
+</html>
