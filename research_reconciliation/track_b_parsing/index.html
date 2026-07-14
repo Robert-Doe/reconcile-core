@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track B — Parsing: Bytes → Tree</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#fb923c;--accent-2:#f5c842}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="../index.html">◂ Research hub</a>
+  <a href="../track_a_dom/index.html">◂ Track A</a>
+  <a href="../track_c_speculative/index.html">Track C ▸</a>
+</nav>
+
+<p class="kicker">Track B · Head First · B1–B6</p>
+<h1>Parsing: Bytes → Tree</h1>
+<p class="lead">This is the engine room. The parser turns bytes into a DOM through
+two coupled state machines that <strong>recover</strong> from anything — and the
+serializer that undoes it is <em>not</em> its inverse. That asymmetry is the
+mathematical root of mutation XSS.</p>
+
+<!-- B1 -->
+<h2>B1 · The byte/encoding stage</h2>
+<p>Before a single tag is tokenized, the browser must decide the character
+encoding. It sniffs: a BOM, an HTTP <code>charset</code>, a
+<code>&lt;meta charset&gt;</code> in the first bytes — and it will <strong>restart
+the parse</strong> if a late <code>&lt;meta&gt;</code> changes its mind.</p>
+<table>
+<thead><tr><th>Mechanism</th><th>Security relevance</th></tr></thead>
+<tbody>
+<tr><td>Encoding sniffing / <code>&lt;meta charset&gt;</code> restart</td><td><strong>Charset confusion:</strong> if a filter assumes UTF-8 but the page renders as another encoding, bytes that looked inert to the filter can form <code>&lt;</code>/<code>&gt;</code> to the parser.</td></tr>
+<tr><td>Legacy UTF-7</td><td>Historically <code>+ADw-script+AD4-</code> decoded to <code>&lt;script&gt;</code> when the page was sniffed as UTF-7 — a classic filter bypass (now largely dead, but the <em>class</em> recurs).</td></tr>
+<tr><td>Missing charset → sniffing</td><td>An attacker who controls early bytes can influence the sniffed encoding.</td></tr>
+</tbody>
+</table>
+<div class="card">
+<div class="callout-title" style="color:#fb923c;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🔑 Defender's takeaway</div>
+Always send an explicit <code>Content-Type: text/html; charset=utf-8</code> and
+<code>X-Content-Type-Options: nosniff</code>. Encoding must be decided by the
+server, not sniffed from attacker-influenced bytes.
+</div>
+
+<!-- B2 -->
+<h2>B2 · The tokenizer state machine</h2>
+<p>The tokenizer walks code points, moving between states. The ones that matter
+for XSS:</p>
+<table>
+<thead><tr><th>State</th><th>Entered inside</th><th>What's special</th></tr></thead>
+<tbody>
+<tr><td><strong>Data</strong></td><td>normal text</td><td><code>&lt;</code> opens a tag, <code>&amp;</code> decodes</td></tr>
+<tr><td><strong>RCDATA</strong></td><td><code>&lt;title&gt;</code>, <code>&lt;textarea&gt;</code></td><td>tags inert, <strong>entities still decode</strong></td></tr>
+<tr><td><strong>RAWTEXT</strong></td><td><code>&lt;style&gt;</code>, <code>&lt;xmp&gt;</code>, <code>&lt;noframes&gt;</code></td><td>only the matching end-tag is special</td></tr>
+<tr><td><strong>Script-data</strong></td><td><code>&lt;script&gt;</code></td><td>baroque sub-states (<code>&lt;!--</code>, <code>&lt;script</code> escapes)</td></tr>
+</tbody>
+</table>
+<p>The attack pattern: get the tokenizer into one of these "text" states where
+your payload is inert, then arrange for the region to be <em>closed early</em>
+(or re-parsed in a context where it closes differently) so the payload
+"un-masks" into real markup.</p>
+
+<h3>▶ Live: tokenizer-state behavior</h3>
+<p>The same payload placed in different host elements. Watch how many real child
+<em>elements</em> form — zero means the tokenizer kept it as text.</p>
+<div class="payload">
+  <input id="tsIn" value="<img src=x onerror=alert(1)>">
+  <button id="tsBtn" class="run">analyze</button>
+</div>
+<div id="tsOut" class="card">…</div>
+
+<!-- B3 -->
+<h2>B3 · Tree construction &amp; insertion modes</h2>
+<p>Tokens feed a second machine: ~25 <strong>insertion modes</strong> plus a
+<strong>stack of open elements</strong> and a list of <strong>active formatting
+elements</strong>. It does the "impossible" recoveries:</p>
+<ul>
+<li><strong>Auto-closing:</strong> <code>&lt;p&gt;a&lt;p&gt;b</code> → two
+siblings.</li>
+<li><strong>Foster parenting:</strong> illegal in-<code>&lt;table&gt;</code>
+content is relocated <em>before</em> the table.</li>
+<li><strong>Adoption agency algorithm:</strong> untangles misnested formatting
+(<code>&lt;b&gt;&lt;i&gt;&lt;/b&gt;&lt;/i&gt;</code>) by cloning/moving nodes.</li>
+</ul>
+<div class="card danger">
+<strong>The consequence that matters:</strong> the tree the browser builds is
+often <em>not</em> the tree your string literally describes. Nodes are moved,
+cloned, and re-nested. So when a sanitizer serializes its cleaned tree and hands
+the string to a sink, the sink's re-parse can relocate content <em>back out</em>
+of a "safe" position.
+</div>
+
+<!-- B6 (pulled up next to B3 because it's the payoff) -->
+<h2>B6 · The serializer &amp; the round-trip asymmetry</h2>
+<p>The serializer (the <code>innerHTML</code> <em>getter</em>) walks the tree and
+emits HTML, escaping attribute values and text per fixed rules. Crucially:</p>
+<div class="card">
+<p style="text-align:center;font-size:1.15rem;color:#fff"><code>parse</code> and
+<code>serialize</code> are <strong>not inverses</strong>:
+<code>serialize(parse(x)) ≠ x</code> in general.</p>
+</div>
+<p>A string sanitizer does <em>parse → clean tree → serialize → string</em>. The
+sink then <em>parses again</em>. If the second parse yields a different tree, the
+cleaning was applied to a tree the browser never renders. <strong>That gap is
+mutation XSS.</strong></p>
+
+<h3>▶ Live: the round-trip / fixed-point oracle</h3>
+<p>Enter any string. We parse→serialize repeatedly and check whether it reaches a
+<em>fixed point</em> and whether a handler/script <em>appears</em> on reparse.
+Non-idempotent inputs are mXSS candidates.</p>
+<div class="payload">
+  <input id="rtIn" value='<noscript><p title="</noscript><img src=x onerror=alert(1)>">'>
+  <button id="rtBtn" class="run">analyze</button>
+</div>
+<div id="rtOut" class="card">…</div>
+<p class="lead">Try also: <code>&lt;table&gt;&lt;td&gt;&lt;style&gt;&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;&lt;/table&gt;</code>
+and <code>&lt;svg&gt;&lt;/p&gt;&lt;style&gt;&lt;a id="&lt;/style&gt;&lt;img src=1 onerror=alert(1)&gt;"&gt;</code>.
+The lesson: a defense on <em>strings</em> can't guarantee idempotence — a defense
+on the <em>tree</em> (or a typed sink) can.</p>
+
+<!-- B4 -->
+<h2>B4 · Foreign content: SVG &amp; MathML</h2>
+<p>Inside <code>&lt;svg&gt;</code>/<code>&lt;math&gt;</code> the tree builder
+enters <strong>foreign content</strong> mode, with different rules:</p>
+<ul>
+<li><strong>Case sensitivity:</strong> <code>viewBox</code>,
+<code>foreignObject</code> are case-sensitive — a lowercasing sanitizer breaks.</li>
+<li><strong>Integration points:</strong> <code>&lt;foreignObject&gt;</code>,
+<code>&lt;annotation-xml&gt;</code>, <code>&lt;mtext&gt;</code>,
+<code>&lt;mglyph&gt;</code> flip parsing <em>back</em> to HTML — the seam where
+namespace-confusion mXSS lives.</li>
+<li><strong>Self-closing:</strong> XML-style <code>/&gt;</code> is honored,
+shifting tag boundaries a sanitizer computed for HTML.</li>
+</ul>
+
+<!-- B5 -->
+<h2>B5 · Fragment parsing &amp; the context element</h2>
+<p><code>el.innerHTML = s</code>, <code>DOMParser</code>, and
+<code>&lt;template&gt;</code> each parse <code>s</code> in a <strong>context</strong>.
+The <em>same string</em> parses to a <em>different tree</em> depending on the
+context element (the insertion mode is seeded from it).</p>
+
+<h3>▶ Live: same string, four contexts</h3>
+<div class="payload">
+  <input id="fcIn" value="<td>cell<style>x</style><img src=y onerror=1>">
+  <button id="fcBtn" class="run">parse in all contexts</button>
+</div>
+<div id="fcOut" class="card">…</div>
+<div class="card">
+<div class="callout-title" style="color:#fb923c;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧠 Brain Power</div>
+A sanitizer parses UGC as a <code>&lt;div&gt;</code> fragment, approves it, and
+the app injects the string into a <code>&lt;table&gt;</code>. Could the
+table-context reparse differ from what the sanitizer saw? (Yes — that's a
+context-mismatch mXSS. The defense must sanitize <em>in the same context</em> it
+will be inserted, or use a typed sink that re-checks at insertion.)
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>Find one input where the round-trip oracle needs <strong>two</strong>
+iterations to reach a fixed point. What does "sanitize to a fixed point" mean as
+a defense, and which failure does it fix?</li>
+<li>Explain, using B3 foster parenting, why a <code>&lt;style&gt;</code> tucked in
+a <code>&lt;table&gt;</code> can relocate on reparse.</li>
+<li>Why is "sanitize in a <code>&lt;div&gt;</code> context, insert into a
+<code>&lt;table&gt;</code>" unsound? Tie it to B5.</li>
+</ol>
+</div>
+
+<footer>
+Track B of F · <a href="../track_c_speculative/index.html">Next: The speculative pipeline ▸</a><br>
+The round-trip oracle here is the seed of the Track F evaluation harness.
+</footer>
+
+<script src="parser_lab.js"></script>
+</body>
+</html>
