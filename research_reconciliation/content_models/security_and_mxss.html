@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Content Models: Security & mXSS Implications</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#f87171;--accent-2:#38bdf8}</style>
+<link rel="stylesheet" href="hf.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Models hub</a>
+  <a href="cdata_sections.html">◂ CDATA sections</a>
+  <a href="cheatsheet.html">Cheat sheet ▸</a>
+</nav>
+
+<p class="kicker">Content Models · 5 of 7</p>
+<h1>Security &amp; mXSS Implications</h1>
+<p class="lead">Everything converges here. Almost every content-model subtlety is,
+from a defender's chair, a way for a <em>sanitizer</em> and a <em>browser</em> to
+disagree about what a string means — and a disagreement about meaning is the exact
+definition of a bypass.</p>
+
+<div class="card">
+<div class="callout-title" style="color:#f87171;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧩 The unifying idea</div>
+A content-model mismatch is a <strong>parse-differential</strong>: two parsers
+assign the same bytes to <em>different dial settings</em>. One thinks a region is
+inert text; the other re-enters DATA and forms an element. That gap powers both
+classic filter bypasses <em>and</em> mutation XSS (Track B6).
+</div>
+
+<div class="story">
+<div class="label">Case File · the sanitizer that ran in the wrong world</div>
+<h3>The <code>&lt;noscript&gt;</code> that was empty to the cleaner, live to the victim</h3>
+<p>A sanitizer runs in a normal browser tab, where scripting is <em>enabled</em>.
+It's handed:</p>
+<pre><code>&lt;noscript&gt;&lt;p title="&lt;/noscript&gt;&lt;img src=x onerror=alert(1)&gt;"&gt;</code></pre>
+<p>With scripting on, <code>&lt;noscript&gt;</code> is RAWTEXT — its contents are
+<em>text</em> — so the sanitizer sees no <code>&lt;img&gt;</code>, declares it
+clean, and stores it. Later it's rendered where the <code>&lt;/noscript&gt;</code>
+closes early (or scripting is off), the <code>&lt;img&gt;</code> becomes real, and
+it fires. <span class="outcome">The sanitizer and the sink were in different
+<em>worlds</em> — same bytes, different content model, different tree.</span></p>
+</div>
+
+<h2>Five failure modes, each a dial-mismatch</h2>
+<table>
+<thead><tr><th>#</th><th>Content-model fact</th><th>How it becomes XSS/mXSS</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>RCDATA decodes entities but not tags</td><td>a value safe as tab-title text becomes markup when pasted into DATA (second-order); a literal <code>&lt;/textarea&gt;</code> breaks out</td></tr>
+<tr><td>2</td><td>RAWTEXT ends only at its end tag; entity-escape doesn't work</td><td>injected <code>&lt;/style&gt;</code> re-enters DATA — and encoding can't save you</td></tr>
+<tr><td>3</td><td><code>&lt;![CDATA[</code> is real in SVG, a bogus comment in HTML</td><td>moving a payload across the foreign boundary flips its meaning (Track B4)</td></tr>
+<tr><td>4</td><td>serialize→reparse isn't idempotent across model boundaries</td><td>a "clean" string re-parses into a different tree — the core mXSS inequality</td></tr>
+<tr><td>5</td><td><code>&lt;noscript&gt;</code> is RAWTEXT (scripting on) but DATA (scripting off)</td><td>the sanitizer sees inert text; a no-script consumer re-parses live markup</td></tr>
+</tbody>
+</table>
+
+<h2>The XHTML-vs-HTML escaping inversion</h2>
+<div class="card danger">
+<div class="callout-title" style="color:#f87171;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">⚠️ A trap for polyglot / migrated templates</div>
+In <strong>XHTML</strong> you <em>must</em> escape <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code>
+contents (they're PCDATA there — dials on), while in <strong>HTML</strong> you
+<em>must not</em> (they're RAWTEXT/script-data — dials off, so an escaped
+<code>&amp;lt;</code> would render literally and break the code). Serve the "wrong"
+content-type for a template written for the other and you get either broken pages
+or injection. The correct escaping is a function of the content model, which is a
+function of the parsing mode.
+</div>
+
+<h2>Why string sanitizers are structurally fragile</h2>
+<p>A string sanitizer must predict, for every region of its <em>output</em>, which
+dial setting the <em>sink</em> will apply — but that depends on the surrounding
+element, the HTML-vs-foreign namespace, the scripting-enabled flag, and the
+doctype, none of which it fully controls at the sink. So the robust defenses
+(Track F) don't operate on strings:</p>
+<div class="card safe">
+<ol>
+<li><strong>Prefer typed sinks (Trusted Types)</strong> — value re-checked <em>at</em> the sink, in its real context.</li>
+<li><strong>Sanitize to a serialization fixed point</strong> (Track F3) — no residual parse-differential survives.</li>
+<li><strong>Sanitize in the same context you'll insert into</strong> (Track B5) — never "clean as a <code>&lt;div&gt;</code>, inject into a <code>&lt;table&gt;</code>/<code>&lt;svg&gt;</code>."</li>
+<li><strong>Fix the parsing mode</strong> — send <code>Content-Type: text/html; charset=utf-8</code> + <code>X-Content-Type-Options: nosniff</code> so the model isn't decided by sniffing (Track B1).</li>
+</ol>
+</div>
+
+<div class="sharpen">
+<div class="label">✏️ Sharpen your Pencil — spot the mismatch</div>
+<p>For each, name the content model the <em>sanitizer</em> assumed vs. the one the
+<em>sink</em> used, and whether it's exploitable:</p>
+<ol>
+<li>Sanitizer cleans a value as a <code>&lt;div&gt;</code> fragment; app inserts it inside a <code>&lt;title&gt;</code>.</li>
+<li>Sanitizer strips <code>&lt;img&gt;</code> but leaves a user's literal <code>&lt;/style&gt;</code>; app renders inside <code>&lt;style&gt;user&lt;/style&gt;</code>.</li>
+</ol>
+<details class="answer"><summary>Show answers</summary>
+<div class="body">
+<ol>
+<li>Sanitizer assumed DATA; sink is RCDATA. Likely <em>not</em> directly exploitable (RCDATA is more restrictive for tags) but can <em>corrupt display</em> or break out via a literal <code>&lt;/title&gt;</code> the sanitizer didn't neutralize. The deeper lesson: the mismatch means the sanitizer's guarantees don't transfer.</li>
+<li>Sanitizer implicitly reasoned in DATA (stripping tags); sink is RAWTEXT. Exploitable: the leftover <code>&lt;/style&gt;</code> closes RAWTEXT and everything after is DATA. Stripping tags was the wrong tool for a RAWTEXT sink.</li>
+</ol></div></details>
+</div>
+
+<h2>Take it to the harness</h2>
+<p>The content-model payloads (noscript, style-wrapped, CDATA-in-SVG, RCDATA
+break-out) are exactly the non-idempotent inputs the
+<a href="../harness/differential_harness.html">differential mXSS harness</a>
+flags. Run them with a candidate sanitizer on/off and watch which models produce a
+handler that <em>regrows</em> on reparse.</p>
+
+<div class="dumbq">
+<div class="label">There are no Dumb Questions</div>
+<div class="qa"><div class="q">Q: If I just always use DOMPurify, do I need any of this?</div>
+<div class="a">A: DOMPurify is excellent and handles most of these — but its safety depends on config and version, and new content-model gadgets appear. Understanding the models is how you <em>configure</em> it correctly (e.g. namespace handling), audit it, and know when to layer Trusted Types under it (Track F).</div></div>
+<div class="qa"><div class="q">Q: Is "sanitize to a fixed point" real, or hand-waving?</div>
+<div class="a">A: Real: re-run the sanitizer on its own output until it stops changing. If <code>sanitize(x) == sanitize(sanitize(x))</code>, no reparse can mutate it further. The harness demonstrates it; Track F3 implements it.</div></div>
+</div>
+
+<div class="keypoints">
+<div class="label">Key points</div>
+<ul>
+<li>A content-model mismatch = a parse-differential = the seed of a bypass or mXSS.</li>
+<li>The <code>&lt;noscript&gt;</code> scripting-on/off split is especially nasty for sanitizers (they run scripting-on).</li>
+<li>Correct escaping depends on the model; XHTML vs HTML even <em>invert</em> the rule for script/style.</li>
+<li>String sanitizers can't guarantee the sink's model — prefer typed sinks + fixed-point sanitize + same-context sanitizing.</li>
+<li>Pin the parsing mode with explicit <code>Content-Type</code> + <code>nosniff</code>.</li>
+</ul>
+</div>
+
+<footer>
+Content Models 5/7 · <a href="cheatsheet.html">Next: the Cheat Sheet &amp; Exam ▸</a> ·
+cross-refs: <a href="../track_b_parsing/index.html">Track B</a> ·
+<a href="../harness/differential_harness.html">differential harness</a>.
+</footer>
+</body>
+</html>

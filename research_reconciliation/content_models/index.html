@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data, CDATA, RCDATA & PCDATA — Oh My!</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#f5c842;--accent-2:#38bdf8}</style>
+<link rel="stylesheet" href="hf.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="../index.html">◂ Research hub</a>
+  <a href="cheatsheet.html">Cheat sheet ▸</a>
+  <a href="playground.html">Playground ▸</a>
+</nav>
+
+<p class="kicker">Content Models · Head First · a Track B deep-dive</p>
+<h1>Data, CDATA, RCDATA &amp; PCDATA — Oh My!</h1>
+<p class="lead">Four almost-identical words that quietly decide whether your
+<code>&lt;script&gt;</code> is a tag or just text. They confuse everyone — so
+let's stop memorizing definitions and instead build <em>one mental model</em> you
+can run in your head for any snippet, forever.</p>
+
+<div class="story">
+<div class="label">Case File · why this module exists</div>
+<h3>The sanitizer that passed every test and shipped an XSS anyway</h3>
+<p>A team writes an HTML sanitizer. It correctly strips <code>&lt;script&gt;</code>
+from normal content. It ships. Weeks later: stored XSS. The payload? A comment
+that put markup inside a <code>&lt;style&gt;</code> tag. The sanitizer "saw" inert
+text; the browser, on a second parse, saw a live <code>&lt;img onerror&gt;</code>.
+<span class="outcome">Nobody on the team could have predicted it — because nobody
+could name the <em>content model</em> the bytes were in. By the end of this
+module, you will name it on sight.</span></p>
+</div>
+
+<h2>The one mental model: two dials</h2>
+<p>Forget the four scary names for a second. Every run of text the parser reads
+has exactly <strong>two dials</strong>, and a content model is just a
+<em>setting of those two dials</em>:</p>
+<div class="dials">
+  <div class="dial">
+    <div class="name">The TAG dial</div>
+    <div class="state">🏷️</div>
+    <div>Does <code>&lt;</code> start a tag,<br>or is it literal text?</div>
+  </div>
+  <div class="dial">
+    <div class="name">The ENTITY dial</div>
+    <div class="state">&amp;</div>
+    <div>Does <code>&amp;amp;</code> become <code>&amp;</code>,<br>or stay literal?</div>
+  </div>
+</div>
+<p>That's it. Two on/off switches. The "four confusing words" are just the four
+useful combinations:</p>
+<table class="cheat">
+<thead><tr><th>Content model</th><th>TAG dial</th><th>ENTITY dial</th><th>Where you meet it</th></tr></thead>
+<tbody>
+<tr><td><strong>DATA</strong> (a.k.a. PCDATA)</td><td class="on">ON</td><td class="on">ON</td><td>normal content — <code>&lt;div&gt;</code>, <code>&lt;p&gt;</code>, body text</td></tr>
+<tr><td><strong>RCDATA</strong></td><td class="off">OFF</td><td class="on">ON</td><td><code>&lt;title&gt;</code>, <code>&lt;textarea&gt;</code></td></tr>
+<tr><td><strong>RAWTEXT</strong></td><td class="off">OFF</td><td class="off">OFF</td><td><code>&lt;style&gt;</code>, <code>&lt;xmp&gt;</code>, <code>&lt;iframe&gt;</code></td></tr>
+<tr><td><strong>script-data</strong></td><td class="off">OFF*</td><td class="off">OFF</td><td><code>&lt;script&gt;</code> (RAWTEXT + a maze of side-doors)</td></tr>
+<tr><td><strong>PLAINTEXT</strong></td><td class="off">OFF 🔒</td><td class="off">OFF</td><td><code>&lt;plaintext&gt;</code> — and the dial <em>jams</em> forever</td></tr>
+<tr><td><strong>CDATA section</strong></td><td class="off">OFF</td><td class="off">OFF</td><td><code>&lt;![CDATA[…]]&gt;</code> — but ONLY inside <code>&lt;svg&gt;</code>/<code>&lt;math&gt;</code></td></tr>
+</tbody>
+</table>
+<div class="card">
+<strong>The single sentence that unlocks it all:</strong> "CDATA" just tells you
+the result is <em>text</em> — it says <em>nothing</em> about the ENTITY dial.
+That's why RCDATA (entities on) and RAWTEXT/CDATA (entities off) are both "just
+text" yet behave differently. The word you were told to key on was the wrong one.
+</div>
+
+<h2>Which content model am I in? (run this in your head)</h2>
+<ol class="decide">
+<li>Look at the <strong>nearest enclosing element</strong>. It, not the bytes,
+picks the dials.</li>
+<li>Is it <code>&lt;title&gt;</code> or <code>&lt;textarea&gt;</code>? →
+<strong>RCDATA</strong> (tags off, entities on).</li>
+<li>Is it <code>&lt;style&gt;</code>/<code>&lt;xmp&gt;</code>/<code>&lt;iframe&gt;</code>/<code>&lt;noembed&gt;</code>/<code>&lt;noframes&gt;</code>? →
+<strong>RAWTEXT</strong> (both off).</li>
+<li>Is it <code>&lt;script&gt;</code>? → <strong>script-data</strong> (both off, plus escape sub-states).</li>
+<li>Are you inside <code>&lt;svg&gt;</code>/<code>&lt;math&gt;</code> and see <code>&lt;![CDATA[</code>? → a <strong>real CDATA section</strong>.</li>
+<li>Otherwise → <strong>DATA</strong>. Both dials on. This is where injection becomes markup.</li>
+</ol>
+
+<div class="fireside">
+<div class="fc-title">🔥 Fireside Chat — the content models argue about who's safest</div>
+<div class="turn"><span class="who data">DATA</span><div class="said">I'm the honest one. What you write is what you get. You typed <code>&lt;b&gt;</code>? You get a bold element. That's not <em>my</em> fault attackers love me.</div></div>
+<div class="turn"><span class="who rcdata">RCDATA</span><div class="said">Careful — you're where XSS <em>happens</em>, DATA. I'm subtler. Your <code>&lt;b&gt;</code> is just text to me… but I still decode <code>&amp;amp;</code>. People forget that half and get the escaping wrong.</div></div>
+<div class="turn"><span class="who rawtext">RAWTEXT</span><div class="said">Amateurs. I take <em>everything</em> literally — tags, entities, all of it. You think that makes me safe? It makes me a trap: you can't entity-escape your way out of me. One stray <code>&lt;/style&gt;</code> and you're back in DATA's arms.</div></div>
+<div class="turn"><span class="who cdata">CDATA section</span><div class="said">And I'm two-faced on purpose. Inside SVG I'm a real fortress of literal text. Out in plain HTML? I collapse into a "bogus comment" and people's payloads leak right past me.</div></div>
+<div class="turn"><span class="who data">DATA</span><div class="said">…so we all agree the danger isn't which of us is "safe." It's a human <em>assuming the wrong dial setting.</em></div></div>
+</div>
+
+<h2>See all four at once (live)</h2>
+<p>One probe string — <code>&lt;b&gt;bold&lt;/b&gt; &amp;amp; &amp;lt;i&amp;gt;</code>
+— carries a tag <em>and</em> an entity, so you can watch both dials per model.
+Predict each row before you read it:</p>
+<div class="payload">
+  <input id="cmIn" value="<b>bold</b> &amp; &lt;i&gt;">
+  <button id="cmBtn" class="run">classify across models</button>
+</div>
+<div id="cmOut" class="card">…</div>
+
+<h2>Three scenarios you'll fully understand by the end</h2>
+<div class="story">
+<div class="label">Case File 1 · rcdata.html</div>
+<h3>The browser tab that shouted <code>&lt;em&gt;Sale!&lt;/em&gt;</code></h3>
+<p>A blog lets titles contain HTML. On the page it renders as italics; in the
+<code>&lt;title&gt;</code> the literal <code>&lt;em&gt;</code> shows up in the
+browser tab. <span class="outcome">Same string, two content models, two correct
+escapings. Get it wrong → broken UI or injection.</span></p>
+</div>
+<div class="story">
+<div class="label">Case File 2 · rawtext_and_script.html</div>
+<h3>The <code>&lt;style&gt;</code> block that ran JavaScript</h3>
+<p>User CSS is placed inside <code>&lt;style&gt;</code>. A comment containing
+<code>&lt;/style&gt;&lt;img src=x onerror=…&gt;</code> closes the RAWTEXT region
+early and re-enters DATA. <span class="outcome">And no, entity-encoding the
+<code>&lt;/style&gt;</code> doesn't help — RAWTEXT's ENTITY dial is off.</span></p>
+</div>
+<div class="story">
+<div class="label">Case File 3 · cdata_sections.html</div>
+<h3>The CDATA that vanished</h3>
+<p>A dev pastes <code>&lt;![CDATA[ … ]]&gt;</code> into an HTML page expecting
+literal text. In HTML it becomes a bogus comment and half the content silently
+disappears — while the <em>same</em> markup inside an uploaded SVG is live.
+<span class="outcome">Two-faced by spec.</span></p>
+</div>
+
+<div class="dumbq">
+<div class="label">There are no Dumb Questions</div>
+<div class="qa"><div class="q">Q: Aren't PCDATA and DATA literally the same thing? Why two names?</div>
+<div class="a">A: Effectively yes. "PCDATA" is the old SGML name; HTML5 renamed the concept "the data state." Same dial setting (both on). You'll see both words in the wild; treat them as synonyms.</div></div>
+<div class="qa"><div class="q">Q: If the element decides the content model, how does an attacker ever "switch" models?</div>
+<div class="a">A: They don't switch the dials directly — they <em>close the current element early</em> (a stray <code>&lt;/title&gt;</code> or <code>&lt;/style&gt;</code>) so the following bytes land back in DATA. That "break-out" is the whole attack pattern, and the Playground lets you test it.</div></div>
+<div class="qa"><div class="q">Q: Is this the same "content model" as the other module (metadata/flow/phrasing)?</div>
+<div class="a">A: No — different meaning entirely. <em>This</em> module = how text is tokenized (tags/entities on or off). The <a href="../content_categories/index.html">Content Categories</a> module = which elements may contain which. Same phrase, two worlds.</div></div>
+</div>
+
+<h2>The pages of this module</h2>
+<div class="card" style="border-left:4px solid #38bdf8">
+<h3 style="margin-top:0"><a href="pcdata_and_data.html">1 · PCDATA → DATA</a> — both dials ON</h3>
+<p>The default, and the only place your injected <code>&lt;</code> becomes a tag.</p>
+</div>
+<div class="card" style="border-left:4px solid #2dd4bf">
+<h3 style="margin-top:0"><a href="rcdata.html">2 · RCDATA</a> — the confusing middle (tags off, entities on)</h3>
+<p><code>&lt;title&gt;</code>/<code>&lt;textarea&gt;</code>, the shouting-tab story,
+the <code>&lt;title&gt;&lt;title&gt;&lt;/title&gt;</code> puzzle.</p>
+</div>
+<div class="card" style="border-left:4px solid #fb923c">
+<h3 style="margin-top:0"><a href="rawtext_and_script.html">3 · RAWTEXT, script &amp; PLAINTEXT</a> — both dials off</h3>
+<p>The <code>&lt;/style&gt;</code> break-out, script-in-script, the one-way latch.</p>
+</div>
+<div class="card" style="border-left:4px solid #a78bfa">
+<h3 style="margin-top:0"><a href="cdata_sections.html">4 · CDATA sections</a> — the two-faced <code>&lt;![CDATA[</code></h3>
+<p>Real in SVG/XML, a bogus comment in HTML. Node-level demo.</p>
+</div>
+<div class="card" style="border-left:4px solid #f87171">
+<h3 style="margin-top:0"><a href="security_and_mxss.html">5 · Security &amp; mXSS</a> — where dial-mismatches become bypasses</h3>
+</div>
+<div class="card" style="border-left:4px solid #f5c842">
+<h3 style="margin-top:0"><a href="cheatsheet.html">6 · The Cheat Sheet &amp; Exam</a> — one-page decision guide + 12 graded exercises</h3>
+</div>
+<div class="card" style="border-left:4px solid #4ade80">
+<h3 style="margin-top:0"><a href="playground.html">7 · The Playground</a> — classify, CDATA-diff &amp; break-out tester</h3>
+</div>
+
+<div class="keypoints">
+<div class="label">Key points</div>
+<ul>
+<li>A content model is just a setting of <strong>two dials</strong>: TAG (does <code>&lt;</code> open a tag?) and ENTITY (does <code>&amp;amp;</code> decode?).</li>
+<li>DATA = both on · RCDATA = tags off/entities on · RAWTEXT &amp; script &amp; CDATA-section = both off.</li>
+<li>The <strong>enclosing element</strong> chooses the dials, not the bytes.</li>
+<li>"CDATA" only means "the result is text" — it says nothing about the ENTITY dial. That's the core confusion.</li>
+<li>Attackers don't flip dials; they <strong>close the element early</strong> to fall back into DATA.</li>
+<li>The right <em>escaping</em> depends on the model — which is why one-size-fits-all encoding fails.</li>
+</ul>
+</div>
+
+<footer>
+Content Models module · concept credit: Dennis Snell, "See DATA, CDATA, RCDATA and
+PCDATA, oh my!" · demos use the real browser parser, nothing executes.
+</footer>
+
+<script src="content_models.js"></script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Content-Model Playground</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#f5c842;--accent-2:#38bdf8}</style>
+<link rel="stylesheet" href="hf.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Models hub</a>
+  <a href="cheatsheet.html">◂ Cheat sheet</a>
+  <a href="../track_b_parsing/index.html">Track B ▸</a>
+</nav>
+
+<p class="kicker">Content Models · 7 of 7 · the runnable centerpiece</p>
+<h1>The Content-Model Playground</h1>
+<p class="lead">Type anything and watch the real browser parser treat it under
+every content model at once — then test whether a payload can <em>break out</em>
+of a text model back into DATA. Nothing executes; everything is parsed inertly via
+<code>&lt;template&gt;</code>.</p>
+
+<div class="story">
+<div class="label">How to get the most from this page</div>
+<h3>Predict, then run</h3>
+<p>Before clicking a demo, say out loud what each dial will do. The gap between
+your prediction and the result is exactly the knowledge this module installs. The
+"Test drive" prompts below give you specific things to try.</p>
+</div>
+
+<!-- Tool 1: classify -->
+<h2>1 · Classify across all content models</h2>
+<p>See, for one string, whether the tag forms an element and whether entities
+decode — in DATA, RCDATA, RAWTEXT, and script-data.</p>
+<div class="payload">
+  <input id="cmIn" value="<b>bold</b> &amp; &lt;i&gt;">
+  <button id="cmBtn" class="run">classify</button>
+</div>
+<div class="payload" style="flex-wrap:wrap">
+  <button class="copy2" data-v="<b>bold</b> &amp; &lt;i&gt;">probe: tag + entity</button>
+  <button class="copy2" data-v="plain &amp;copy; &amp;#x2764; text">entities only</button>
+  <button class="copy2" data-v="<img src=x onerror=alert(1)>">img onerror</button>
+  <button class="copy2" data-v="a &lt; b &amp;&amp; c">comparison text</button>
+  <button class="copy2" data-v="&lt;/style&gt;&lt;svg onload=1&gt;">a stray end-tag</button>
+</div>
+<div id="cmOut" class="card">…</div>
+
+<div class="sharpen">
+<div class="label">✏️ Test drive</div>
+<p>Click "entities only" (<code>&amp;copy; &amp;#x2764;</code>). Predict: which
+rows decode it, which show it literally?</p>
+<details class="answer"><summary>Show answer</summary>
+<div class="body">DATA and both RCDATA rows (title/textarea) decode it — ENTITY dial on. The
+RAWTEXT (style/xmp) and script-data rows show it literally — ENTITY dial off. No
+row forms a child element, because there's no tag in the probe.</div></details>
+</div>
+
+<!-- Tool 2: CDATA HTML vs SVG -->
+<h2>2 · CDATA section: HTML vs foreign content</h2>
+<p>The same inner content, parsed inside <code>&lt;div&gt;</code> (HTML → bogus
+comment) and <code>&lt;svg&gt;</code> (foreign → real literal-text section).</p>
+<div class="payload">
+  <input id="cdIn" value="<![CDATA[But there <em>are</em> tags in here]]>">
+  <button id="cdBtn" class="run">parse in HTML vs SVG</button>
+</div>
+<div id="cdOut" class="card">…</div>
+
+<!-- Tool 3: break-out tester -->
+<h2>3 · Break-out tester</h2>
+<p>Pick a host content model, supply a payload, and see whether it escapes back to
+DATA and forms a live sink (a <code>&lt;script&gt;</code> or an <code>on*</code>
+handler). This is the attacker's core question per content model.</p>
+<div class="payload" style="flex-wrap:wrap">
+  <label class="lead">host:
+    <select id="boHost" class="flt" style="max-width:200px">
+      <option value="div">&lt;div&gt; (DATA)</option>
+      <option value="title">&lt;title&gt; (RCDATA)</option>
+      <option value="textarea">&lt;textarea&gt; (RCDATA)</option>
+      <option value="style">&lt;style&gt; (RAWTEXT)</option>
+      <option value="xmp">&lt;xmp&gt; (RAWTEXT)</option>
+      <option value="script">&lt;script&gt; (script-data)</option>
+    </select>
+  </label>
+</div>
+<div class="payload">
+  <input id="boIn" value="</title></style></textarea></xmp><img src=x onerror=alert(1)>">
+  <button id="boBtn" class="run">test break-out</button>
+</div>
+<div class="payload" style="flex-wrap:wrap">
+  <button class="preset copy2" data-host="style" data-v="&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;">style: real end-tag (breaks out)</button>
+  <button class="preset copy2" data-host="style" data-v="&amp;lt;/style&amp;gt;&lt;img src=x onerror=alert(1)&gt;">style: ENCODED end-tag (does it help?)</button>
+  <button class="preset copy2" data-host="title" data-v="&lt;/title&gt;&lt;img src=x onerror=alert(1)&gt;">title: end-tag break-out</button>
+  <button class="preset copy2" data-host="script" data-v='&lt;/script&gt;&lt;svg onload=alert(1)&gt;'>script: string break-out</button>
+</div>
+<div id="boOut" class="card">…</div>
+
+<div class="sharpen">
+<div class="label">✏️ Test drive — the encoding myth</div>
+<p>Run "style: ENCODED end-tag". A dev entity-encoded <code>&lt;/style&gt;</code>
+hoping to neutralize it. Did it break out? What does that prove?</p>
+<details class="answer"><summary>Show answer</summary>
+<div class="body">It stays <strong>inert</strong> — but not because encoding "worked." In RAWTEXT
+the ENTITY dial is OFF, so <code>&amp;lt;/style&amp;gt;</code> is just literal text
+that happens not to match the end-tag sequence. The <code>&lt;img&gt;</code> is
+inside RAWTEXT = text. Now compare "style: real end-tag": a genuine
+<code>&lt;/style&gt;</code> DOES break out. Proof: what matters is the literal
+end-tag sequence, not entities. Encoding was irrelevant either way.</div></details>
+</div>
+
+<div class="card">
+<div class="callout-title" style="color:#f5c842;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧠 Try this</div>
+Set host to <code>&lt;style&gt;</code> and payload to
+<code>&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;</code> → it breaks out.
+Then remove the <code>&lt;/style&gt;</code> → it stays inert text. The end-tag
+sequence is the only key that opens a RAWTEXT region. That single observation is
+the defense: neutralize the end-tag sequence for the host's content model.
+</div>
+
+<div class="keypoints">
+<div class="label">Key points</div>
+<ul>
+<li>The classifier shows both dials per model; the CDATA tool shows the HTML↔SVG flip; the break-out tester shows the attacker's move.</li>
+<li>Break-out = a literal end-tag sequence for the host element re-enters DATA.</li>
+<li>Entity-encoding an end-tag in RAWTEXT does nothing (dial off) — positioning, not encoding, decides safety there.</li>
+<li>Feed anything surprising here into the <a href="../harness/differential_harness.html">differential harness</a> to see if it's non-idempotent (mXSS).</li>
+</ul>
+</div>
+
+<footer>
+Content Models 7/7 · back to the <a href="index.html">hub</a> ·
+feed these payloads into the <a href="../harness/differential_harness.html">differential harness</a>.
+</footer>
+
+<script src="content_models.js"></script>
+<script>
+(function () {
+  // copy2 buttons fill the classify input (and, if data-host present, the break-out inputs).
+  document.querySelectorAll(".copy2").forEach((b) =>
+    b.addEventListener("click", () => {
+      const host = b.getAttribute("data-host");
+      const raw = b.getAttribute("data-v");
+      // decode the HTML entities in data-v to a real string for the inputs
+      const tmp = document.createElement("textarea"); tmp.innerHTML = raw;
+      const val = tmp.value;
+      if (host) {
+        document.getElementById("boHost").value = host;
+        document.getElementById("boIn").value = val;
+        document.getElementById("boBtn").click();
+      } else {
+        document.getElementById("cmIn").value = val;
+        document.getElementById("cmBtn").click();
+      }
+    }));
+
+  // Break-out tester: parse "<host>PAYLOAD</host>" inertly, then check whether a
+  // live sink (script / on* handler) exists ANYWHERE in the resulting fragment —
+  // i.e. the payload escaped the host's text model.
+  function esc(s){return String(s).replace(/[&<>]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+  const btn = document.getElementById("boBtn");
+  btn.addEventListener("click", function () {
+    const host = document.getElementById("boHost").value;
+    const payload = document.getElementById("boIn").value;
+    const t = document.createElement("template");
+    t.innerHTML = "<" + host + ">" + payload + "</" + host + ">";
+    let sink = null;
+    t.content.querySelectorAll("*").forEach((el) => {
+      const inHost = el.closest ? el.closest(host) : null;
+      const isSink = el.tagName === "SCRIPT" || [...el.attributes].some((a)=>/^on/i.test(a.name));
+      if (isSink && (host === "div" || !inHost)) sink = el.tagName.toLowerCase();
+    });
+    const brokeOut = sink && host !== "div";
+    const serialized = (() => { const d=document.createElement("div"); d.appendChild(t.content.cloneNode(true)); return d.innerHTML; })();
+    document.getElementById("boOut").innerHTML =
+      `<div><strong>Host model:</strong> <code>&lt;${esc(host)}&gt;</code></div>
+       <div><strong>Escaped to DATA &amp; formed a live sink?</strong>
+         <code style="color:${brokeOut ? "#f87171" : (sink && host==='div' ? "#fb923c" : "#4ade80")}">
+         ${brokeOut ? "YES — BREAK-OUT ("+sink+")" : (sink && host==="div" ? "sink present (DATA host — expected)" : "no — stayed inert text")}</code></div>
+       <div style="margin-top:.5rem"><strong>Resulting DOM (serialized):</strong></div>
+       <pre>${esc(serialized) || "(empty)"}</pre>
+       <p class="lead">${brokeOut
+         ? "The payload closed the "+host+" region and re-entered DATA, where its handler is live. Neutralize the &lt;/"+host+"&gt; sequence to prevent this."
+         : (host==="div" ? "In a DATA host the tag legitimately parses — this is the injection baseline."
+                         : "No end-tag sequence for this model appeared, so the payload remained literal text.")}</p>`;
+  });
+  btn.click();
+})();
+</script>
+</body>
+</html>

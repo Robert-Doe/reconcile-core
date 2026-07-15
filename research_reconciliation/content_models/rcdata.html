@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RCDATA — tags off, entities on</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#2dd4bf;--accent-2:#38bdf8}</style>
+<link rel="stylesheet" href="hf.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Models hub</a>
+  <a href="pcdata_and_data.html">◂ PCDATA/DATA</a>
+  <a href="rawtext_and_script.html">RAWTEXT ▸</a>
+</nav>
+
+<p class="kicker">Content Models · 2 of 7</p>
+<h1>RCDATA: the confusing middle</h1>
+<p class="lead">"Replaceable character data." Exactly two elements in all of HTML
+use it — <code>&lt;title&gt;</code> and <code>&lt;textarea&gt;</code> — and its
+half-on/half-off dial setting trips up nearly every HTML library ever written.</p>
+
+<div class="dials">
+  <div class="dial"><div class="name">TAG dial</div><div class="state off">OFF</div><div><code>&lt;b&gt;</code> is just text</div></div>
+  <div class="dial"><div class="name">ENTITY dial</div><div class="state on">ON</div><div><code>&amp;amp;</code> → <code>&amp;</code></div></div>
+</div>
+<p>Tags off, entities on. That's the whole rule — and it's the one combination
+people never expect. The only thing that ends RCDATA is the matching end tag
+(<code>&lt;/title&gt;</code>).</p>
+
+<div class="story">
+<div class="label">Case File · the browser tab that shouted markup</div>
+<h3>"Why does my tab literally say <code>&lt;em&gt;Sale!&lt;/em&gt;</code>?"</h3>
+<p>A CMS lets post titles contain HTML — <code>&lt;em&gt;Sale!&lt;/em&gt;</code>.
+On the page (a DATA context, e.g. an <code>&lt;h1&gt;</code>) it renders as
+<em>Sale!</em> in italics. But the developer <em>also</em> drops the raw title
+into the document <code>&lt;title&gt;</code> for the browser tab. Because
+<code>&lt;title&gt;</code> is RCDATA, the <code>&lt;em&gt;</code> is <strong>not a
+tag</strong> — the tab shows the literal characters <code>&lt;em&gt;Sale!&lt;/em&gt;</code>.</p>
+<p class="outcome">One stored string, two content models, two <em>different</em>
+correct treatments: render as markup in DATA, but strip-to-plaintext (or
+entity-escape) for the RCDATA title. This is a content-model flavor of
+second-order XSS (Module 10): safe in one slot, wrong — or exploitable — in
+another.</p>
+</div>
+
+<h2>The puzzle everyone gets wrong</h2>
+<div class="card">
+<p style="font-size:1.1rem;color:#fff">What is the title of
+<code>&lt;title&gt;&lt;title&gt;&lt;/title&gt;</code>?</p>
+<p>The title is the literal text <strong><code>&lt;title&gt;</code></strong>. The
+<em>first</em> <code>&lt;title&gt;</code> opens the element and flips the TAG dial
+off (RCDATA). The inner <code>&lt;title&gt;</code> is therefore just text, and the
+<code>&lt;/title&gt;</code> closes the element. It's exactly equivalent to
+<code>&lt;title&gt;&amp;lt;title&amp;gt;&lt;/title&gt;</code>.</p>
+</div>
+<p>Dennis Snell's article notes this element's behavior is confused across "all
+manner of programming languages, platforms, and HTML-parsing code" — because
+people reach for a regex or an XML parser, and both model RCDATA wrong.</p>
+
+<h2>See it: tags stay text, entities still decode</h2>
+<p>Watch the <code>&lt;title&gt;</code> and <code>&lt;textarea&gt;</code> rows:
+<code>&lt;b&gt;</code> makes <strong>0 child elements</strong>, but
+<code>&amp;amp;</code> <em>does</em> decode. Half on, half off.</p>
+<div class="payload">
+  <input id="cmIn" value="<b>bold</b> &amp; &lt;i&gt;">
+  <button id="cmBtn" class="run">classify across models</button>
+</div>
+<div id="cmOut" class="card">…</div>
+
+<h2>Breaking out of RCDATA (the attacker's only move)</h2>
+<p>Since <em>only</em> <code>&lt;/title&gt;</code> ends the region, a payload that
+contains that literal end tag closes it early and re-enters DATA:</p>
+<pre><code>&lt;title&gt;USER&lt;/title&gt;
+   with USER = &lt;/title&gt;&lt;img src=x onerror=alert(1)&gt;
+→ &lt;title&gt;&lt;/title&gt;&lt;img src=x onerror=alert(1)&gt;   (now DATA — executes)</code></pre>
+
+<div class="fireside">
+<div class="fc-title">🔥 Fireside Chat — RCDATA and a Developer</div>
+<div class="turn"><span class="who rcdata">RCDATA</span><div class="said">Relax. Inside me, tags are text. Your user's <code>&lt;script&gt;</code> can't hurt you here.</div></div>
+<div class="turn"><span class="who data">Dev</span><div class="said">Great, so I'll just HTML-encode the whole title like I do everywhere else — <code>&amp;lt;</code>, <code>&amp;amp;</code>, done.</div></div>
+<div class="turn"><span class="who rcdata">RCDATA</span><div class="said">Whoa — my ENTITY dial is ON. If you encode a legit <code>&amp;</code> in the title to <code>&amp;amp;</code>, I'll decode it back to <code>&amp;</code> and it'll look right… but if you <em>don't</em> neutralize a literal <code>&lt;/title&gt;</code> in the user's text, they close me early. Encode the end-tag sequence, not the whole world.</div></div>
+<div class="turn"><span class="who data">Dev</span><div class="said">So the fix is: encode <code>&lt;</code> (so no <code>&lt;/title&gt;</code> can form), and I don't need to fear tags otherwise.</div></div>
+<div class="turn"><span class="who rcdata">RCDATA</span><div class="said">Now you get me.</div></div>
+</div>
+
+<div class="sharpen">
+<div class="label">✏️ Sharpen your Pencil</div>
+<p>Predict the exact title text (and whether the entity decodes):</p>
+<ol>
+<li><code>&lt;title&gt;&lt;b&gt;Hi&lt;/b&gt; &amp;amp; bye&lt;/title&gt;</code></li>
+<li><code>&lt;title&gt;Price: 5 &amp;lt; 6&lt;/title&gt;</code></li>
+<li><code>&lt;textarea&gt;&lt;/textarea&gt;&lt;img src=x onerror=alert(1)&gt;&lt;/textarea&gt;</code> — does the img execute?</li>
+</ol>
+<details class="answer"><summary>Show answers</summary>
+<div class="body">
+<ol>
+<li>Title = <code>&lt;b&gt;Hi&lt;/b&gt; &amp; bye</code>. The <code>&lt;b&gt;</code> stays literal (tags off); <code>&amp;amp;</code> decodes to <code>&amp;</code> (entities on).</li>
+<li>Title = <code>Price: 5 &lt; 6</code>. <code>&amp;lt;</code> decodes to <code>&lt;</code> — and because tags are off, that decoded <code>&lt;</code> is harmless text, not a tag-open. (Entity-decoded <code>&lt;</code> never starts a tag; only a <em>literal</em> <code>&lt;</code> in the byte stream does.)</li>
+<li><strong>Yes.</strong> The literal <code>&lt;/textarea&gt;</code> closes RCDATA, re-entering DATA where the <code>&lt;img onerror&gt;</code> is live. Classic break-out.</li>
+</ol></div></details>
+</div>
+
+<div class="dumbq">
+<div class="label">There are no Dumb Questions</div>
+<div class="qa"><div class="q">Q: Wait — in answer 2, a decoded <code>&lt;</code> is safe, but in DATA it's dangerous?</div>
+<div class="a">A: Right, and it's a crucial subtlety. Tags are recognized during <em>tokenizing</em>, from literal <code>&lt;</code> bytes. A <code>&lt;</code> that arrives via entity decoding appears <em>after</em> that decision, so it's inert text in any model. That's why "encode <code>&lt;</code> to <code>&amp;lt;</code>" defuses tags: you replace the literal byte with an entity.</div></div>
+<div class="qa"><div class="q">Q: Only two elements are RCDATA? Not <code>&lt;style&gt;</code>?</div>
+<div class="a">A: Correct — just <code>&lt;title&gt;</code> and <code>&lt;textarea&gt;</code>. <code>&lt;style&gt;</code> is RAWTEXT (next page): entities are OFF there too. Mixing these up is the #1 escaping mistake.</div></div>
+</div>
+
+<div class="keypoints">
+<div class="label">Key points</div>
+<ul>
+<li>RCDATA = <strong>TAG off, ENTITY on</strong>. Only <code>&lt;title&gt;</code> and <code>&lt;textarea&gt;</code>.</li>
+<li>Tags become literal text; entities still decode. A decoded <code>&lt;</code> is harmless (tags are recognized from literal bytes only).</li>
+<li>The only exit is the matching end tag — so a literal <code>&lt;/title&gt;</code>/<code>&lt;/textarea&gt;</code> in user data breaks out to DATA.</li>
+<li>Defense: encode <code>&lt;</code> so no end-tag can form; you don't need to encode <code>&gt;</code> or fear other tags.</li>
+<li>Same value in a DATA slot vs an RCDATA slot needs different handling → second-order bugs.</li>
+</ul>
+</div>
+
+<footer>
+Content Models 2/7 · <a href="rawtext_and_script.html">Next: RAWTEXT, script &amp; PLAINTEXT ▸</a>
+</footer>
+
+<script src="content_models.js"></script>
+</body>
+</html>

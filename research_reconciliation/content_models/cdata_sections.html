@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CDATA sections — the two-faced <![CDATA[</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#a78bfa;--accent-2:#38bdf8}</style>
+<link rel="stylesheet" href="hf.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Models hub</a>
+  <a href="rawtext_and_script.html">◂ RAWTEXT</a>
+  <a href="security_and_mxss.html">Security ▸</a>
+</nav>
+
+<p class="kicker">Content Models · 4 of 7</p>
+<h1>CDATA sections: the two-faced <code>&lt;![CDATA[</code></h1>
+<p class="lead">Same eight-character opener, opposite meanings depending on where
+it sits. In XML and inside SVG/MathML it starts a real region of literal text. In
+plain HTML it isn't a CDATA section at all — it degrades into a "bogus comment."
+Sanitizers routinely get this backwards.</p>
+
+<div class="card">
+<div class="callout-title" style="color:#a78bfa;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🔑 First, kill the biggest confusion</div>
+"CDATA" (a content model — the result is <em>text</em>) and "a CDATA
+<strong>section</strong>" (the syntax <code>&lt;![CDATA[ … ]]&gt;</code>) are
+<strong>not the same thing.</strong> As Dennis Snell's article stresses: creating
+CDATA does not imply creating a CDATA section. A normal XML text node "is CDATA"
+(it's text) with no <code>&lt;![CDATA[</code> anywhere in sight.
+</div>
+
+<div class="story">
+<div class="label">Case File · the Jekyll-and-Hyde bracket</div>
+<h3>The content that vanished in HTML but ran in an SVG</h3>
+<p>A developer copies an XML snippet — <code>&lt;![CDATA[Price &lt; 10 &amp; up]]&gt;</code>
+— into an HTML page, expecting literal text. Half of it silently disappears
+(swallowed into a bogus comment). Frustrated, they move the exact same snippet into
+an uploaded <code>.svg</code> that the app serves. Now it's a <em>real</em> CDATA
+section — and if the payload were a script instead, it would be live.
+<span class="outcome">One string. In HTML: a disappearing comment. In SVG: a
+fortress of literal text (that can hide a live payload across the boundary).</span></p>
+</div>
+
+<h2>CDATA sections in three worlds</h2>
+<table class="cheat">
+<thead><tr><th>Context</th><th>Real section?</th><th>What the parser does</th></tr></thead>
+<tbody>
+<tr><td><strong>XML / XHTML</strong></td><td class="on">yes</td><td>parsing turns fully off; everything up to <code>]]&gt;</code> is literal text; no entity decoding</td></tr>
+<tr><td><strong>HTML — foreign content</strong> (inside <code>&lt;svg&gt;</code>/<code>&lt;math&gt;</code>)</td><td class="on">yes</td><td>same as XML — a real literal-text section</td></tr>
+<tr><td><strong>HTML — everywhere else</strong></td><td class="off">no</td><td>becomes a <em>bogus comment</em>: reads to the nearest <code>&gt;</code>, makes a comment node; the rest parses as normal DATA</td></tr>
+</tbody>
+</table>
+
+<h2>The concrete gotcha, node by node</h2>
+<p>The same inner content, <code>&lt;![CDATA[But there &lt;em&gt;are&lt;/em&gt; tags in here]]&gt;</code>:</p>
+<ul>
+<li><strong>In HTML:</strong> <code>&lt;![CDATA[But there &lt;em&gt;</code> becomes a
+<em>bogus comment</em> (up to the first <code>&gt;</code>). Then
+<code>are&lt;/em&gt; tags in here]]&gt;</code> parses as DATA — so
+<code>&lt;/em&gt;</code> is a stray end tag and <code>]]&gt;</code> is just text.</li>
+<li><strong>In SVG:</strong> the whole thing is one literal text node —
+<code>&lt;em&gt;</code> is not a tag.</li>
+</ul>
+
+<h2>See the node-level difference (live)</h2>
+<p>Type inner content; we parse it inside <code>&lt;div&gt;</code> (HTML → bogus
+comment) and <code>&lt;svg&gt;</code> (foreign → real section) and print the child
+nodes. Watch the comment node appear on the HTML side and the single text node on
+the SVG side.</p>
+<div class="payload">
+  <input id="cdIn" value="<![CDATA[But there <em>are</em> tags in here]]>">
+  <button id="cdBtn" class="run">parse in HTML vs SVG</button>
+</div>
+<div id="cdOut" class="card">…</div>
+
+<div class="fireside">
+<div class="fc-title">🔥 Fireside Chat — HTML and SVG on the same bracket</div>
+<div class="turn"><span class="who cdata">Author</span><div class="said">I wrote <code>&lt;![CDATA[secret]]&gt;</code>. Same characters in both of you. Surely you agree what it means?</div></div>
+<div class="turn"><span class="who data">HTML</span><div class="said">To me? That's not a section. I see <code>&lt;!</code> and start a bogus comment until the next <code>&gt;</code>. Bits of your "secret" leak out as live markup after it.</div></div>
+<div class="turn"><span class="who rawtext">SVG</span><div class="said">To me it's a genuine CDATA section — pure literal text to <code>]]&gt;</code>. Nothing in it is markup.</div></div>
+<div class="turn"><span class="who data">HTML</span><div class="said">So if an attacker can move content from my world into SVG's — or the reverse — its meaning flips. No payload change required.</div></div>
+</div>
+
+<h2>Why this is a security seam</h2>
+<div class="card danger">
+A sanitizer that "supports SVG" but reasons about CDATA with an HTML mindset (or
+vice-versa) mis-models where element boundaries are. And because the
+<code>&lt;svg&gt;</code>/<code>&lt;math&gt;</code> boundary can be crossed via
+<strong>integration points</strong> (Track B4), an attacker can shuttle a payload
+between "CDATA-is-real" and "CDATA-is-a-bogus-comment" worlds. That boundary flip
+is a first-class <strong>mXSS</strong> ingredient.
+</div>
+
+<div class="sharpen">
+<div class="label">✏️ Sharpen your Pencil</div>
+<p>Predict the child nodes:</p>
+<ol>
+<li><code>&lt;div&gt;&lt;![CDATA[x&lt;b&gt;y]]&gt;&lt;/div&gt;</code> (HTML)</li>
+<li><code>&lt;svg&gt;&lt;![CDATA[x&lt;b&gt;y]]&gt;&lt;/svg&gt;</code> (foreign)</li>
+</ol>
+<details class="answer"><summary>Show answers</summary>
+<div class="body">
+<ol>
+<li>A <strong>comment</strong> node <code>&lt;!--[CDATA[x&lt;b--&gt;</code> (bogus comment ends at the first <code>&gt;</code>, which is the one after <code>&lt;b</code>), then <strong>text</strong> <code>y]]&gt;</code>. The <code>&lt;b&gt;</code> did NOT become an element — the <code>&gt;</code> that ended it belonged to the bogus comment. Run it in the demo to confirm the exact split.</li>
+<li>A single <strong>text</strong>/CDATA node: <code>x&lt;b&gt;y</code>, entirely literal.</li>
+</ol></div></details>
+</div>
+
+<div class="dumbq">
+<div class="label">There are no Dumb Questions</div>
+<div class="qa"><div class="q">Q: If I need a literal <code>&amp;</code> inside an XML CDATA section, can I write <code>&amp;amp;</code>?</div>
+<div class="a">A: No — a CDATA section decodes nothing (entities off). <code>&amp;amp;</code> would appear literally as those five characters. Your options: write the raw <code>&amp;</code>, or close the section, emit the entity outside it, and reopen a new section. This is the round-trip catch serializers must handle.</div></div>
+<div class="qa"><div class="q">Q: Should I ever use CDATA sections in HTML?</div>
+<div class="a">A: Practically never in HTML text — they don't do what people expect (bogus comment). They're meaningful only in XML/XHTML and inside inline SVG/MathML. Treat a <code>&lt;![CDATA[</code> in HTML source as a probable bug or a probe.</div></div>
+</div>
+
+<div class="keypoints">
+<div class="label">Key points</div>
+<ul>
+<li>"CDATA" (text result) ≠ "CDATA section" (<code>&lt;![CDATA[…]]&gt;</code> syntax).</li>
+<li>Real CDATA sections exist in <strong>XML and inside SVG/MathML</strong> only; in plain HTML the syntax becomes a <strong>bogus comment</strong>.</li>
+<li>A bogus comment ends at the first <code>&gt;</code> — so following content can leak back into DATA as live markup.</li>
+<li>Moving content across the HTML↔foreign boundary flips its meaning — an mXSS ingredient.</li>
+<li>CDATA sections decode no entities; serializing entity values into them needs the close/emit/reopen trick.</li>
+</ul>
+</div>
+
+<footer>
+Content Models 4/7 · <a href="security_and_mxss.html">Next: Security &amp; mXSS implications ▸</a>
+</footer>
+
+<script src="content_models.js"></script>
+</body>
+</html>

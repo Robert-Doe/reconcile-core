@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAWTEXT, script-data & PLAINTEXT — both dials off</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#fb923c;--accent-2:#f5c842}</style>
+<link rel="stylesheet" href="hf.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Models hub</a>
+  <a href="rcdata.html">◂ RCDATA</a>
+  <a href="cdata_sections.html">CDATA sections ▸</a>
+</nav>
+
+<p class="kicker">Content Models · 3 of 7</p>
+<h1>RAWTEXT, script-data &amp; PLAINTEXT</h1>
+<p class="lead">The "text all the way down" models. <em>Both</em> dials off — no
+tags, no entities. The parser copies bytes verbatim until one exact end sequence.
+That verbatim-ness is a gift to attackers and a trap for anyone trying to escape
+their way to safety.</p>
+
+<div class="dials">
+  <div class="dial"><div class="name">TAG dial</div><div class="state off">OFF</div><div>everything is literal</div></div>
+  <div class="dial"><div class="name">ENTITY dial</div><div class="state off">OFF</div><div><code>&amp;amp;</code> stays <code>&amp;amp;</code></div></div>
+</div>
+
+<h2>RAWTEXT — literal until the end tag</h2>
+<p>Used by <code>&lt;style&gt;</code>, <code>&lt;xmp&gt;</code>,
+<code>&lt;iframe&gt;</code>, <code>&lt;noembed&gt;</code>,
+<code>&lt;noframes&gt;</code>, and <code>&lt;noscript&gt;</code> (scripting on).
+Inside it, <code>&lt;b&gt;</code> is text, <code>&amp;amp;</code> stays five
+literal characters, and only the matching end tag ends the region.</p>
+
+<h2>script-data — RAWTEXT with a maze of side doors</h2>
+<p><code>&lt;script&gt;</code> uses "script data": RAWTEXT-like (no entities, no
+child elements) plus a notorious set of sub-states around <code>&lt;!--</code>,
+<code>&lt;script</code>, and <code>&lt;/script</code> so real JavaScript
+containing those sequences still parses. Those sub-states are their own bypass
+playground (script-in-script escaping).</p>
+
+<h2>See it: neither dial is on</h2>
+<div class="payload">
+  <input id="cmIn" value="<b>bold</b> &amp; &lt;i&gt;">
+  <button id="cmBtn" class="run">classify across models</button>
+</div>
+<div id="cmOut" class="card">…</div>
+<p class="lead">The <code>&lt;style&gt;</code>/<code>&lt;xmp&gt;</code>/<code>&lt;script&gt;</code>
+rows: 0 child elements <em>and</em> entities NOT decoded.</p>
+
+<div class="story">
+<div class="label">Case File · the stylesheet that ran JavaScript</div>
+<h3>A "theme color" feature becomes stored XSS</h3>
+<p>An app lets users pick CSS, and injects it as
+<code>&lt;style&gt;/* USER */&lt;/style&gt;</code>. An attacker submits:</p>
+<pre><code>&lt;/style&gt;&lt;img src=x onerror=alert(document.domain)&gt;</code></pre>
+<p>The literal <code>&lt;/style&gt;</code> ends the RAWTEXT region; the following
+bytes are now DATA, and the <code>&lt;img onerror&gt;</code> fires for every
+visitor.</p>
+<p class="outcome">The developer's instinct — "HTML-encode it like everything
+else" — <strong>fails here</strong>, and that failure is the whole point of this
+page.</p>
+</div>
+
+<h2>The trap: you can't entity-escape your way out of RAWTEXT</h2>
+<div class="card danger">
+Because the ENTITY dial is <strong>off</strong>, writing
+<code>&amp;lt;/style&amp;gt;</code> inside <code>&lt;style&gt;</code> does
+<em>not</em> produce a safe, un-decoded tag — it produces the <em>literal
+characters</em> <code>&amp;lt;/style&amp;gt;</code> on screen (broken), and it does
+<strong>not</strong> stop a real <code>&lt;/style&gt;</code> elsewhere in the
+payload from closing the region. Entity encoding — the tool that saves you in DATA
+and RCDATA — is <em>useless</em> here. Safe practice: <strong>don't put untrusted
+text in RAWTEXT elements at all.</strong> If you truly must, break up the end-tag
+sequence structurally (e.g. reject/replace <code>&lt;/style</code>,
+<code>&lt;/script</code> substrings), never by entity-encoding.
+</div>
+
+<div class="fireside">
+<div class="fc-title">🔥 Fireside Chat — DATA vs RAWTEXT on "just encode it"</div>
+<div class="turn"><span class="who data">DATA</span><div class="said">When in doubt, encode <code>&lt;</code> to <code>&amp;lt;</code>. Works great in me.</div></div>
+<div class="turn"><span class="who rawtext">RAWTEXT</span><div class="said">Don't bring that advice into my house. My ENTITY dial is off. Your <code>&amp;lt;</code> shows up as the literal text "&amp;lt;". You didn't sanitize anything — you just uglified it.</div></div>
+<div class="turn"><span class="who data">DATA</span><div class="said">So how does anyone stay safe inside you?</div></div>
+<div class="turn"><span class="who rawtext">RAWTEXT</span><div class="said">You don't feed me untrusted text. Period. Or you physically prevent my end tag from appearing. Encoding is not a lever you have in here.</div></div>
+</div>
+
+<h2>PLAINTEXT — the one-way door</h2>
+<p><code>&lt;plaintext&gt;</code> is the extreme case: it <strong>latches</strong>.
+Once the parser enters it, the <em>entire rest of the document</em> is literal
+text — no end tag, no way back to DATA, ever.</p>
+<pre><code>&lt;plaintext&gt;&lt;script&gt;alert(1)&lt;/script&gt; &amp;amp; everything after
+→ one big text node; nothing parses, nothing decodes, forever.</code></pre>
+<div class="card">
+<div class="callout-title" style="color:#fb923c;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧠 Brain Power</div>
+If an attacker injects a bare <code>&lt;plaintext&gt;</code> high in a page, what
+happens to all the legitimate markup below it — including a late CSP
+<code>&lt;meta&gt;</code> or a login form? (It all becomes inert text: a
+defacement / denial-of-rendering primitive, and a way to <em>neutralize</em>
+security markup placed later in the document. Content models cut both ways.)
+</div>
+
+<div class="sharpen">
+<div class="label">✏️ Sharpen your Pencil</div>
+<p>For each, does an alert-capable element end up live? Why?</p>
+<ol>
+<li><code>&lt;style&gt;body{}&amp;lt;/style&amp;gt;&lt;img src=x onerror=alert(1)&gt;&lt;/style&gt;</code></li>
+<li><code>&lt;xmp&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;/xmp&gt;</code></li>
+<li><code>&lt;script&gt;var s="&lt;/script&gt;&lt;img src=x onerror=alert(1)&gt;";&lt;/script&gt;</code></li>
+</ol>
+<details class="answer"><summary>Show answers</summary>
+<div class="body">
+<ol>
+<li><strong>Live.</strong> The <code>&amp;lt;/style&amp;gt;</code> is inert literal text (entities off), so it does NOT close the region — but the <em>real</em> <code>&lt;/style&gt;</code> at the end… wait: read carefully. The region runs to the FIRST real <code>&lt;/style&gt;</code>. Here the only literal <code>&lt;/style&gt;</code> is the final one, so the <code>&lt;img&gt;</code> is <em>inside</em> RAWTEXT → text, NOT live. Trick question! The encoded end-tag proved harmless, and there was no earlier real one. (Change the encoded one to a real <code>&lt;/style&gt;</code> and it breaks out.)</li>
+<li><strong>Not live.</strong> Inside <code>&lt;xmp&gt;</code> (RAWTEXT) the <code>&lt;script&gt;</code> is literal text; the only thing that ends xmp is <code>&lt;/xmp&gt;</code>.</li>
+<li><strong>Live.</strong> The literal <code>&lt;/script&gt;</code> inside the JS string closes script-data early (the tokenizer doesn't know about JS strings) — the rest becomes DATA and the <code>&lt;img&gt;</code> fires. This is why embedding user data in inline <code>&lt;script&gt;</code> requires escaping <code>&lt;/</code> (Module E4/SSR).</li>
+</ol></div></details>
+</div>
+
+<div class="dumbq">
+<div class="label">There are no Dumb Questions</div>
+<div class="qa"><div class="q">Q: Isn't <code>&lt;noscript&gt;</code> just always RAWTEXT?</div>
+<div class="a">A: No — and this is a famous mXSS seed. With scripting <em>enabled</em> (a normal browser tab) <code>&lt;noscript&gt;</code> contents are RAWTEXT (text). With scripting <em>disabled</em>, they're parsed as normal DATA. A sanitizer runs with scripting on and sees text; a different consumer may reparse as markup. Covered on the Security page.</div></div>
+<div class="qa"><div class="q">Q: Why does the tokenizer close <code>&lt;script&gt;</code> at a <code>&lt;/script&gt;</code> inside a JS string?</div>
+<div class="a">A: Because tokenizing happens before JavaScript ever runs — the tokenizer has no idea what a JS string is. It only knows "script data ends at <code>&lt;/script</code>." So a <code>&lt;/script&gt;</code> in your data is a real region-ender. Escape it as <code>&lt;\/script&gt;</code> in JS strings.</div></div>
+</div>
+
+<div class="keypoints">
+<div class="label">Key points</div>
+<ul>
+<li>RAWTEXT &amp; script-data = <strong>both dials OFF</strong>. <code>&lt;style&gt;</code>, <code>&lt;xmp&gt;</code>, <code>&lt;iframe&gt;</code>, <code>&lt;noembed/noframes/noscript</code>, and <code>&lt;script&gt;</code>.</li>
+<li>Only the literal end tag ends the region — a <code>&lt;/style&gt;</code>/<code>&lt;/script&gt;</code> in user data breaks out to DATA.</li>
+<li><strong>Entity-encoding is useless here</strong> (dial off) — the defense is to not place untrusted text in these elements, or to structurally block the end-tag sequence.</li>
+<li>A <code>&lt;/script&gt;</code> inside a JS string still closes script-data — escape <code>&lt;/</code>.</li>
+<li><code>&lt;plaintext&gt;</code> latches: the rest of the document becomes literal text, permanently.</li>
+</ul>
+</div>
+
+<footer>
+Content Models 3/7 · <a href="cdata_sections.html">Next: CDATA sections — the two-faced &lt;![CDATA[ ▸</a>
+</footer>
+
+<script src="content_models.js"></script>
+</body>
+</html>

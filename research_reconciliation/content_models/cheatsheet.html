@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Content Models — Cheat Sheet & Exam</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#f5c842;--accent-2:#38bdf8}</style>
+<link rel="stylesheet" href="hf.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Models hub</a>
+  <a href="security_and_mxss.html">◂ Security</a>
+  <a href="playground.html">Playground ▸</a>
+</nav>
+
+<p class="kicker">Content Models · 6 of 7 · the one-page reference</p>
+<h1>The Cheat Sheet &amp; Exam</h1>
+<p class="lead">Everything on one page: the dial table, the "which model am I in?"
+recap, the <strong>how-to-escape-safely-in-each-context</strong> guide (the part
+that turns knowledge into working code), and a 12-question exam with reveal
+answers. Bookmark this.</p>
+
+<h2>1 · The master table (two dials)</h2>
+<table class="cheat">
+<thead><tr><th>Model</th><th>TAG</th><th>ENTITY</th><th>Ends at</th><th>Elements</th></tr></thead>
+<tbody>
+<tr><td><strong>DATA</strong> (PCDATA)</td><td class="on">ON</td><td class="on">ON</td><td>next tag / normal flow</td><td>body, <code>div</code>, <code>p</code>, <code>span</code>…</td></tr>
+<tr><td><strong>RCDATA</strong></td><td class="off">OFF</td><td class="on">ON</td><td>matching end tag</td><td><code>title</code>, <code>textarea</code></td></tr>
+<tr><td><strong>RAWTEXT</strong></td><td class="off">OFF</td><td class="off">OFF</td><td>matching end tag</td><td><code>style</code>, <code>xmp</code>, <code>iframe</code>, <code>noembed</code>, <code>noframes</code>, <code>noscript</code>*</td></tr>
+<tr><td><strong>script-data</strong></td><td class="off">OFF</td><td class="off">OFF</td><td><code>&lt;/script</code> (+ sub-states)</td><td><code>script</code></td></tr>
+<tr><td><strong>PLAINTEXT</strong></td><td class="off">OFF</td><td class="off">OFF</td><td>🔒 never (latches)</td><td><code>plaintext</code></td></tr>
+<tr><td><strong>CDATA section</strong></td><td class="off">OFF</td><td class="off">OFF</td><td><code>]]&gt;</code></td><td>only in <code>svg</code>/<code>math</code>; a bogus comment in HTML</td></tr>
+</tbody>
+</table>
+<p class="lead">* <code>noscript</code> is RAWTEXT only when scripting is enabled;
+with scripting off it's DATA. Mnemonic: <strong>"Titles Talk, Styles Stay
+Silent."</strong> (Title/textarea decode entities = "talk"; style/script take
+everything literally = "silent.")</p>
+
+<h2>2 · Which model am I in? (30-second recap)</h2>
+<ol class="decide">
+<li>Find the <strong>nearest enclosing element</strong> — it sets the dials.</li>
+<li><code>title</code>/<code>textarea</code> → RCDATA. <code>style</code>/<code>xmp</code>/<code>iframe</code>/<code>noembed</code>/<code>noframes</code> → RAWTEXT. <code>script</code> → script-data.</li>
+<li>Inside <code>svg</code>/<code>math</code> with <code>&lt;![CDATA[</code> → real CDATA section.</li>
+<li>Otherwise → DATA.</li>
+</ol>
+
+<h2>3 · How to safely place untrusted text in each context</h2>
+<p>This is the payoff table — the rule differs per model because the dials
+differ:</p>
+<table class="cheat">
+<thead><tr><th>Sink context</th><th>Safe approach</th><th>Do NOT</th></tr></thead>
+<tbody>
+<tr><td><strong>DATA</strong> (HTML text)</td><td>encode <code>&lt; &gt; &amp;</code> (→ <code>&amp;lt;</code> etc.). Best: use <code>textContent</code>.</td><td>concatenate raw into <code>innerHTML</code></td></tr>
+<tr><td><strong>Attribute value</strong></td><td>encode the quote + <code>&lt; &gt; &amp;</code>; always quote the attribute</td><td>leave attributes unquoted</td></tr>
+<tr><td><strong>RCDATA</strong> (<code>title</code>/<code>textarea</code>)</td><td>encode <code>&lt;</code> (kills the end-tag); or set via <code>.textContent</code>/<code>.value</code></td><td>rely on tag-stripping; forget the literal end tag</td></tr>
+<tr><td><strong>RAWTEXT</strong> (<code>style</code>) &amp; <strong>script-data</strong></td><td><strong>don't put untrusted text here.</strong> If forced: block the end-tag substring structurally; for JS strings escape <code>&lt;/</code> → <code>&lt;\/</code></td><td>entity-encode (dial is OFF — it does nothing)</td></tr>
+<tr><td><strong>URL attribute</strong> (<code>href</code>/<code>src</code>)</td><td>scheme allowlist on the <em>decoded</em> value (http/https/mailto/relative)</td><td>substring-match "javascript:" on raw bytes</td></tr>
+<tr><td><strong>Inside <code>svg</code>/<code>math</code></strong></td><td>use a namespace-aware sanitizer; treat as its own world</td><td>assume HTML rules apply</td></tr>
+<tr><td><strong>Any (best)</strong></td><td>Trusted Types + sanitize-to-fixed-point at the sink (Track F)</td><td>one-size-fits-all string escaping</td></tr>
+</tbody>
+</table>
+
+<div class="card">
+<div class="callout-title" style="color:#f5c842;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">💡 The rule of thumb that survives everything</div>
+<strong>Entity encoding only helps where the ENTITY dial is ON</strong> (DATA,
+RCDATA, attributes). Where it's OFF (RAWTEXT, script, CDATA section), encoding is
+theater — you must avoid the context or block its end-tag structurally.
+</div>
+
+<h2>4 · The Exam (12 questions)</h2>
+<p>Predict before revealing. Aim for 10/12 before calling yourself advanced.</p>
+
+<div class="sharpen">
+<div class="label">✏️ Part A — Classify the context</div>
+<ol>
+<li>Bytes land inside <code>&lt;textarea&gt;HERE&lt;/textarea&gt;</code>. Which dials?</li>
+<li>Bytes land inside <code>&lt;style&gt;HERE&lt;/style&gt;</code>. Which dials?</li>
+<li>Bytes land inside <code>&lt;svg&gt;&lt;![CDATA[HERE]]&gt;&lt;/svg&gt;</code>. Real section?</li>
+<li><code>&lt;p&gt;HERE&lt;/p&gt;</code>. Which model?</li>
+</ol>
+<details class="answer"><summary>Show answers</summary>
+<div class="body"><ol>
+<li>RCDATA — TAG off, ENTITY on.</li>
+<li>RAWTEXT — both off.</li>
+<li>Yes, a real CDATA section (foreign content).</li>
+<li>DATA — both on.</li>
+</ol></div></details>
+</div>
+
+<div class="sharpen">
+<div class="label">✏️ Part B — Predict the output</div>
+<ol>
+<li><code>&lt;title&gt;a &amp;lt; b &amp;amp;&amp;amp; c&lt;/title&gt;</code> → tab shows?</li>
+<li><code>&lt;style&gt;x &amp;amp; y&lt;/style&gt;</code> → the style text is?</li>
+<li><code>&lt;div&gt;&amp;lt;b&amp;gt;hi&amp;lt;/b&amp;gt;&lt;/div&gt;</code> → rendered as?</li>
+<li><code>&lt;div&gt;&lt;![CDATA[hi]]&gt;&lt;/div&gt;</code> → node type of the CDATA part?</li>
+</ol>
+<details class="answer"><summary>Show answers</summary>
+<div class="body"><ol>
+<li><code>a &lt; b &amp;&amp; c</code> — entities decode (ENTITY on); the decoded <code>&lt;</code> is inert (TAG off).</li>
+<li>Literally <code>x &amp;amp; y</code> — ENTITY off, nothing decodes.</li>
+<li>Literal text <code>&lt;b&gt;hi&lt;/b&gt;</code> — the entities decode to <code>&lt;</code>/<code>&gt;</code> but decoded brackets are inert; nothing is bold. (Contrast: raw <code>&lt;b&gt;</code> WOULD bold.)</li>
+<li>A <strong>comment</strong> node (bogus comment) — HTML has no real CDATA sections outside foreign content.</li>
+</ol></div></details>
+</div>
+
+<div class="sharpen">
+<div class="label">✏️ Part C — Find &amp; fix the bug</div>
+<ol>
+<li>Does this execute? <code>&lt;textarea&gt;&lt;/textarea&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;/textarea&gt;</code></li>
+<li>A dev "protects" a style block: <code>&lt;style&gt;color:red; &amp;lt;/style&amp;gt;INJECT&lt;/style&gt;</code> where INJECT = <code>&lt;img src=x onerror=alert(1)&gt;</code>. Safe?</li>
+<li>SSR embeds user bio in <code>&lt;script&gt;var b="BIO"&lt;/script&gt;</code>. BIO = <code>&lt;/script&gt;&lt;svg onload=alert(1)&gt;</code>. Safe?</li>
+<li>Best single fix for #3?</li>
+</ol>
+<details class="answer"><summary>Show answers</summary>
+<div class="body"><ol>
+<li><strong>No script tag runs as script</strong> via textarea's content — BUT the literal <code>&lt;/textarea&gt;</code> closes RCDATA, and the following <code>&lt;script&gt;</code> is now in DATA. However, a <code>&lt;script&gt;</code> created by the normal document parse <em>does</em> run — so if this is in a live document parse, yes it executes. (If inserted via <code>innerHTML</code>, the script wouldn't run, but an <code>onerror</code> would — Module 09.) Break-out confirmed either way.</li>
+<li><strong>Not safe.</strong> The <code>&amp;lt;/style&amp;gt;</code> is inert (ENTITY off, so it's literal text, not a closing tag) — good — but it also isn't the problem. The real <code>&lt;/style&gt;</code>… here the only literal one is the final tag, so INJECT is inside RAWTEXT = text = inert. Trick: it's actually safe <em>as written</em>, but for the wrong reason the dev thinks. Add a real <code>&lt;/style&gt;</code> before INJECT and it breaks out. Lesson: the encoding did nothing; positioning did.</li>
+<li><strong>Not safe.</strong> Literal <code>&lt;/script&gt;</code> ends script-data; <code>&lt;svg onload&gt;</code> is now DATA and fires.</li>
+<li>Escape <code>&lt;/</code> in the embedded JSON/string (e.g. <code>&lt;\/script&gt;</code>) and prefer a safe JSON serializer that also escapes <code>&lt;!--</code> and U+2028/2029 (Track E4). Best of all: don't hand-embed — use the framework's state serializer.</li>
+</ol></div></details>
+</div>
+
+<div class="keypoints">
+<div class="label">Key points</div>
+<ul>
+<li>Two dials (TAG, ENTITY) fully describe every content model.</li>
+<li>The escaping that works depends on which dials are on — there is no universal escape.</li>
+<li>Entity encoding is <em>only</em> a tool where ENTITY is on (DATA/RCDATA/attributes).</li>
+<li>RAWTEXT/script/CDATA: avoid untrusted text or block the end-tag structurally; encoding is theater.</li>
+<li>When in doubt: <code>textContent</code>, or Trusted Types + fixed-point sanitize (Track F).</li>
+</ul>
+</div>
+
+<footer>
+Content Models 6/7 · <a href="playground.html">Next: the Playground ▸</a> ·
+back to the <a href="index.html">hub</a>.
+</footer>
+</body>
+</html>

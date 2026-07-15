@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCDATA → DATA — both dials ON</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#38bdf8;--accent-2:#2dd4bf}</style>
+<link rel="stylesheet" href="hf.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Models hub</a>
+  <a href="rcdata.html">RCDATA ▸</a>
+</nav>
+
+<p class="kicker">Content Models · 1 of 7</p>
+<h1>PCDATA → DATA: where markup actually happens</h1>
+<p class="lead">This is the content model you already use without knowing its
+name. Both dials are ON: <code>&lt;</code> opens tags <em>and</em>
+<code>&amp;amp;</code> decodes. It's the parser's home base — and the <em>only</em>
+model where an injected <code>&lt;</code> becomes a real tag.</p>
+
+<div class="dials">
+  <div class="dial"><div class="name">TAG dial</div><div class="state on">ON</div><div><code>&lt;</code> opens a tag</div></div>
+  <div class="dial"><div class="name">ENTITY dial</div><div class="state on">ON</div><div><code>&amp;amp;</code> → <code>&amp;</code></div></div>
+</div>
+
+<h2>Why "PCDATA" and why HTML5 renamed it</h2>
+<p>In SGML (HTML's grandparent) <strong>PCDATA</strong> = "parsed character data":
+a region the parser must actively parse because its characters <em>might</em> be
+markup. HTML5 dropped SGML's configurable machinery and hard-coded the behavior
+into the tokenizer's <strong>data state</strong>. So: PCDATA and DATA are the same
+dial setting — both on — one's just the modern name.</p>
+<p>The subtle spec phrase worth chewing on: essentially every text node is DATA —
+but only <em>after</em> parsing. Before parsing, the very same bytes could have
+been a tag. <strong>The content model is what the parser <em>does</em>, not a
+property the bytes carry.</strong></p>
+
+<div class="story">
+<div class="label">Case File · the disappearing bold tag</div>
+<h3>"Why did my <code>&lt;b&gt;</code> turn into an actual bold element?"</h3>
+<p>A junior dev builds a comment box. They store the literal text a user typed —
+<code>I love &lt;b&gt;this&lt;/b&gt;!</code> — and drop it into the page with
+<code>div.innerHTML = comment</code>. On screen: <strong>this</strong> is bold.
+The user meant the characters <code>&lt;b&gt;</code>; the browser, in DATA, saw a
+tag and built an element.</p>
+<p class="outcome">Fix: the div is a DATA context, so encode <code>&lt;</code> to
+<code>&amp;lt;</code> on output. Now the bytes stay text. This is the entire
+"reflected/stored XSS in HTML text" lesson in one story — the payload just wasn't
+malicious this time.</p>
+</div>
+
+<h2>In the data state, two characters are magic</h2>
+<table>
+<thead><tr><th>Char</th><th>What it triggers</th><th>Leads to</th></tr></thead>
+<tbody>
+<tr><td><code>&lt;</code></td><td>"tag open" state</td><td>a start/end tag, a comment, or a DOCTYPE</td></tr>
+<tr><td><code>&amp;</code></td><td>"character reference" state</td><td>a decoded entity (<code>&amp;amp;</code> → <code>&amp;</code>)</td></tr>
+</tbody>
+</table>
+<p>Everything else is literal text. Because <em>both</em> are live, DATA is the
+most permissive model — and therefore the one attackers want their bytes to land
+in. Every other model turns at least one dial off.</p>
+
+<h2>See it: DATA does both jobs</h2>
+<p>Watch the <code>&lt;div&gt;</code> (DATA) row: <code>&lt;b&gt;</code> becomes a
+real element <strong>and</strong> <code>&amp;amp;</code> decodes. Both dials on.</p>
+<div class="payload">
+  <input id="cmIn" value="<b>bold</b> &amp; &lt;i&gt;">
+  <button id="cmBtn" class="run">classify across models</button>
+</div>
+<div id="cmOut" class="card">…</div>
+
+<div class="sharpen">
+<div class="label">✏️ Sharpen your Pencil</div>
+<p>For each snippet, in a normal <code>&lt;div&gt;</code> (DATA) context, predict
+the <em>rendered</em> result before revealing:</p>
+<ol>
+<li><code>5 &amp;lt; 6 &amp;amp;&amp;amp; 6 &amp;gt; 5</code></li>
+<li><code>&lt;i&gt;hi&lt;/i&gt; &amp;copy; 2026</code></li>
+<li><code>a &amp;amp;lt; b</code> &nbsp;(careful — double-encoded!)</li>
+</ol>
+<details class="answer"><summary>Show answers</summary>
+<div class="body">
+<ol>
+<li><code>5 &lt; 6 &amp;&amp; 6 &gt; 5</code> — entities decode; no real tags (they were encoded).</li>
+<li><em>hi</em> (italic) followed by <code>© 2026</code> — <code>&lt;i&gt;</code> is a live tag here; <code>&amp;copy;</code> decodes.</li>
+<li>The literal text <code>a &amp;lt; b</code> — the outer <code>&amp;amp;</code> decodes to <code>&amp;</code>, leaving the <em>text</em> <code>&amp;lt;</code> (which does NOT further decode — decoding happens once). This "one-pass decode" is a classic double-encoding gotcha (Module 12).</li>
+</ol></div></details>
+</div>
+
+<h2>Why DATA is the dangerous model</h2>
+<div class="card danger">
+Injection that lands in <strong>DATA</strong> is textbook reflected/stored XSS: a
+<code>&lt;</code> you supply really opens a tag. Every other content model is, for
+tags, "safer by default" — which is exactly why attackers work to <em>break out
+of</em> RCDATA/RAWTEXT back into DATA (next pages). The defender's move: in a DATA
+sink, encode <code>&lt;</code> (and <code>&amp;</code>) so bytes can never become
+markup.
+</div>
+
+<div class="dumbq">
+<div class="label">There are no Dumb Questions</div>
+<div class="qa"><div class="q">Q: If I set <code>textContent</code> instead of <code>innerHTML</code>, am I still "in DATA"?</div>
+<div class="a">A: No — <code>textContent</code> doesn't parse at all; it inserts a literal text node. There's no content model because there's no tokenizing. That's why <code>textContent</code> is the safest sink: it sidesteps this entire module.</div></div>
+<div class="qa"><div class="q">Q: Does DATA decode <em>every</em> entity, like <code>&amp;#x6a;</code>?</div>
+<div class="a">A: Yes — named (<code>&amp;copy;</code>), decimal (<code>&amp;#169;</code>), and hex (<code>&amp;#xA9;</code>) all decode. This is why a scheme check on a URL must run on the <em>decoded</em> value (Module 06): <code>javascript&amp;colon;</code> decodes to <code>javascript:</code>.</div></div>
+</div>
+
+<div class="keypoints">
+<div class="label">Key points</div>
+<ul>
+<li>DATA (= PCDATA) has <strong>both dials ON</strong>: tags open, entities decode.</li>
+<li>It's the parser's default state and the only model where injected <code>&lt;</code> becomes a tag.</li>
+<li>The content model is decided by the enclosing element and by the parser's state — <em>not</em> by the bytes.</li>
+<li>Entities decode <strong>once</strong>; that's the double-encoding gotcha.</li>
+<li><code>textContent</code> has no content model at all — the safest sink.</li>
+</ul>
+</div>
+
+<footer>
+Content Models 1/7 · <a href="rcdata.html">Next: RCDATA — the confusing middle ▸</a>
+</footer>
+
+<script src="content_models.js"></script>
+</body>
+</html>
