@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why content categories matter for defense</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#f87171;--accent-2:#38bdf8}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Categories hub</a>
+  <a href="paragraphs.html">◂ Paragraphs</a>
+  <a href="../track_f_fallback/index.html">Track F ▸</a>
+</nav>
+
+<p class="kicker">Content Categories · 7 of 7</p>
+<h1>Why Content Categories Matter for Defense</h1>
+<p class="lead">The whole point of learning the categories: a good HTML sanitizer
+is not an arbitrary tag list — it's a <strong>deliberate selection of content
+categories</strong>. Reasoning at the category level is what turns a leaky
+allowlist into a principled one.</p>
+
+<h2>Your allowlist, expressed in categories</h2>
+<table>
+<thead><tr><th>Category</th><th>Allow in untrusted HTML?</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td style="color:#2dd4bf">Phrasing (subset)</td><td style="color:#4ade80">yes — a curated subset</td><td><code>b i em strong code span a(*)</code>: formatting, no resource/script surface (but see the traps)</td></tr>
+<tr><td style="color:#38bdf8">Flow blocks (subset)</td><td style="color:#4ade80">yes — a few</td><td><code>p ul ol li blockquote pre</code>: safe structure</td></tr>
+<tr><td style="color:#a78bfa">Sectioning</td><td>usually yes</td><td>structural; watch DOM clobbering via <code>id</code>/<code>name</code> (Track A3)</td></tr>
+<tr><td style="color:#f5c842">Heading</td><td>usually yes</td><td>structural</td></tr>
+<tr><td style="color:#fb923c">Embedded</td><td style="color:#f87171"><strong>no</strong></td><td>external resource / foreign parser (SVG/MathML) — Track B4 / mXSS surface</td></tr>
+<tr><td style="color:#f87171">Interactive</td><td style="color:#f87171"><strong>no</strong></td><td>activation surface; form controls; <code>&lt;a href&gt;</code> only with scheme allowlist</td></tr>
+<tr><td style="color:#7a9bbf">Metadata</td><td style="color:#f87171"><strong>no</strong></td><td><code>script</code>/<code>style</code>/<code>link</code>/<code>base</code>: direct script/CSS/base-hijack sinks</td></tr>
+</tbody>
+</table>
+
+<h2>The three category-level traps that cause real bugs</h2>
+
+<div class="card danger">
+<div class="callout-title" style="color:#f87171;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">⚠️ Trap 1 — "embedded ⊂ phrasing"</div>
+"Allow all phrasing content" silently allows <code>&lt;img&gt;</code>,
+<code>&lt;svg&gt;</code>, <code>&lt;math&gt;</code>, <code>&lt;iframe&gt;</code>,
+<code>&lt;video&gt;</code> — because embedded content <em>is</em> phrasing content
+(page 1's Euler diagram). An allowlist thought of as "just inline formatting" that
+forgets to subtract embedded content ships a foreign-parser XSS. <strong>Always
+express phrasing as an explicit subset, never "all phrasing."</strong>
+</div>
+
+<div class="card danger">
+<div class="callout-title" style="color:#f87171;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">⚠️ Trap 2 — transparent elements</div>
+<code>&lt;a&gt;</code>, <code>&lt;ins&gt;</code>, <code>&lt;object&gt;</code>,
+<code>&lt;video&gt;</code>, <code>&lt;audio&gt;</code> have <em>no fixed</em>
+content model (page 5). A sanitizer that assumes <code>&lt;a&gt;</code> "contains
+phrasing" is wrong when it wraps flow; and one working on a detached fragment sees
+the orphan default (flow). Transparent + context-dependent = the same
+context-mismatch class as Track B5's fragment-parsing bug.
+</div>
+
+<div class="card danger">
+<div class="callout-title" style="color:#f87171;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">⚠️ Trap 3 — node-run scanning skips straddlers</div>
+The paragraph algorithm (page 6) deliberately <em>ignores</em>
+<code>a/ins/del/map</code> when scanning runs. Any defense that walks node runs
+and "skips" certain elements inherits that blind spot: content hidden inside a
+skipped straddler can reach a sink the scanner never inspected. Scanning-based
+sanitizers must not have skip rules a payload can exploit.
+</div>
+
+<h2>How this connects to the rest of the research track</h2>
+<table>
+<thead><tr><th>This module</th><th>Connects to</th></tr></thead>
+<tbody>
+<tr><td>Categories = what may nest where</td><td><a href="../track_a_dom/index.html">Track A</a>: the sink map — embedded/interactive/metadata carry the sinks</td></tr>
+<tr><td>Transparent/context-dependent models</td><td><a href="../track_b_parsing/index.html">Track B5</a>: fragment-parsing context mismatch</td></tr>
+<tr><td>Embedded = foreign vocabularies (SVG/MathML)</td><td><a href="../content_models/index.html">Content Models</a> (parser) + Track B4 integration points</td></tr>
+<tr><td>Allowlist as a category selection</td><td><a href="../track_f_fallback/index.html">Track F3</a>: the sanitizer's allowlist config</td></tr>
+</tbody>
+</table>
+
+<h2>The takeaway for your thesis</h2>
+<div class="card safe">
+A category-aware defense can make a <strong>provable coverage claim</strong>: "the
+allowlist admits only a named subset of phrasing + flow-block content; it admits
+<em>zero</em> embedded, interactive, or metadata elements; transparent elements
+are normalized to a fixed (phrasing) model before insertion; and the result is
+sanitized to a serialization fixed point (Track F3)." That's a far stronger
+statement than "we strip these 30 tags" — and it's expressible <em>because</em>
+the category vocabulary exists.
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>Rewrite the allowlist "b i em strong a img" as a category statement, and
+identify the dangerous inclusion.</li>
+<li>Why is "allow all phrasing" unsafe, in one sentence, citing the Euler
+relationship?</li>
+<li>State a category-level coverage claim for a comment sanitizer that would
+satisfy a PhD reviewer.</li>
+</ol>
+</div>
+
+<footer>
+Content Categories 7/7 · back to the <a href="index.html">hub</a> ·
+next stop: <a href="../track_f_fallback/index.html">Track F</a> (build the defense).
+</footer>
+
+<script src="content_categories.js"></script>
+</body>
+</html>

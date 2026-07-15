@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transparent content models</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#f5c842;--accent-2:#38bdf8}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Categories hub</a>
+  <a href="embedded_and_interactive.html">◂ Embedded &amp; Interactive</a>
+  <a href="paragraphs.html">Paragraphs ▸</a>
+</nav>
+
+<p class="kicker">Content Categories · 5 of 7</p>
+<h1>Transparent Content Models</h1>
+<p class="lead">The genuinely mind-bending category rule: some elements don't have
+a fixed content model at all. Their allowed contents are <strong>inherited from
+their parent</strong>. That single feature is why <code>&lt;a&gt;</code> is
+sometimes phrasing and sometimes not — and why sanitizers get it wrong.</p>
+
+<h2>What "transparent" means</h2>
+<p>The spec: some elements "have 'transparent' in the description of their content
+model. The content model of a transparent element is derived from the content
+model of its parent element." In other words, the transparent element is a
+<em>pass-through</em>: whatever the parent would have allowed there, the
+transparent element allows too.</p>
+<div class="card">
+<p><strong>The transparent elements</strong> (this draft): <code>&lt;a&gt;</code>,
+<code>&lt;ins&gt;</code>, <code>&lt;del&gt;</code>, <code>&lt;map&gt;</code>,
+<code>&lt;object&gt;</code>, <code>&lt;video&gt;</code>,
+<code>&lt;audio&gt;</code>. Each wraps content without changing what's allowed
+there.</p>
+</div>
+
+<h2>Why it exists: <code>&lt;a&gt;</code>, <code>&lt;ins&gt;</code>, <code>&lt;del&gt;</code></h2>
+<p>These need to wrap <em>either</em> a phrase <em>or</em> a whole block:</p>
+<pre><code>&lt;p&gt;Read &lt;a href="/x"&gt;this sentence&lt;/a&gt;.&lt;/p&gt;      &lt;!-- a wraps phrasing --&gt;
+
+&lt;a href="/x"&gt;                                       &lt;!-- a wraps flow blocks --&gt;
+  &lt;h2&gt;A whole clickable card&lt;/h2&gt;
+  &lt;p&gt;with a paragraph&lt;/p&gt;
+&lt;/a&gt;</code></pre>
+<p>A fixed content model couldn't express "contains whatever my parent allows."
+Transparency does: inside a <code>&lt;p&gt;</code> (phrasing context) an
+<code>&lt;a&gt;</code> may contain only phrasing; inside a <code>&lt;div&gt;</code>
+(flow context) the same <code>&lt;a&gt;</code> may contain flow blocks. <em>Same
+element, different rules, decided by the parent.</em> This is exactly why the
+categorizer marks <code>&lt;a&gt;</code>'s "phrasing" membership as conditional:
+"if it contains only phrasing content."</p>
+
+<h2>Derive-from-parent (live)</h2>
+<p>Pick a transparent element and its parent context; see the content model it
+inherits.</p>
+<div class="payload" style="flex-wrap:wrap">
+  <label class="lead">transparent element:
+    <select id="tEl" class="flt" style="max-width:150px">
+      <option>a</option><option>ins</option><option>del</option>
+      <option>object</option><option>video</option><option>map</option>
+    </select></label>
+  <label class="lead">inside parent:
+    <select id="tParent" class="flt" style="max-width:170px">
+      <option value="p">&lt;p&gt; (phrasing)</option>
+      <option value="span">&lt;span&gt; (phrasing)</option>
+      <option value="div">&lt;div&gt; (flow)</option>
+      <option value="section">&lt;section&gt; (flow)</option>
+      <option value="__none__">(no parent — orphan)</option>
+    </select></label>
+  <button id="tBtn" class="run">derive</button>
+</div>
+<div id="tOut" class="card">…</div>
+
+<h2>The orphan rule</h2>
+<div class="card">
+<div class="callout-title" style="color:#f5c842;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧠 Brain Power</div>
+What content model does a transparent element have when it has <em>no</em> parent
+(an orphan node — Track A allows those)? The spec's answer: it "must instead be
+treated as accepting any flow content." So a detached <code>&lt;a&gt;</code>
+defaults to flow. Why does this matter to a sanitizer? (Because sanitizers often
+work on <em>detached fragments</em> — <code>DOMParser</code> output,
+<code>&lt;template&gt;</code> content — where the "parent" is a synthetic root.
+The effective content model there may differ from where the fragment is finally
+inserted. Another flavor of the context-mismatch bug from Track B5.)
+</div>
+
+<h2>Why transparency is a sanitizer trap</h2>
+<div class="card danger">
+<ul>
+<li>A rule like "inside <code>&lt;a&gt;</code>, allow the same things as the
+surrounding context" is <strong>context-dependent</strong> — a sanitizer that
+treats <code>&lt;a&gt;</code>'s content model as fixed will either over-allow
+(letting flow blocks into a phrasing spot) or under-allow.</li>
+<li><code>&lt;object&gt;</code>, <code>&lt;video&gt;</code>,
+<code>&lt;audio&gt;</code> are <em>both</em> embedded content <em>and</em>
+transparent — their "fallback" children follow the parent's model. That's a lot
+of surface: an embedded element whose children rules depend on where it sits.</li>
+<li>The interaction with <strong>paragraphs</strong> (page 6) is why the spec
+tells the paragraph algorithm to <em>ignore</em> <code>a</code>, <code>ins</code>,
+<code>del</code>, and <code>map</code> when finding paragraph boundaries — they
+"straddle" boundaries precisely because they're transparent.</li>
+</ul>
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>Explain why the <em>same</em> <code>&lt;a&gt;</code> may hold an
+<code>&lt;h2&gt;</code> in one place but not another.</li>
+<li>What content model does an orphan <code>&lt;ins&gt;</code> have, and why is
+that relevant to sanitizing detached fragments?</li>
+<li>Why does the paragraph algorithm skip <code>a/ins/del/map</code>?</li>
+</ol>
+</div>
+
+<footer>
+Content Categories 5/7 · <a href="paragraphs.html">Next: Paragraphs (the concept) ▸</a>
+</footer>
+
+<script src="content_categories.js"></script>
+<script>
+(function () {
+  // Effective content model of a parent context (simplified from the spec).
+  const PARENT_MODEL = {
+    p: "phrasing content", span: "phrasing content",
+    div: "flow content", section: "flow content",
+    __none__: "flow content (orphan default)",
+  };
+  const btn = document.getElementById("tBtn");
+  function run() {
+    const el = document.getElementById("tEl").value;
+    const parent = document.getElementById("tParent").value;
+    const model = PARENT_MODEL[parent];
+    const orphan = parent === "__none__";
+    const canBlocks = model.startsWith("flow");
+    document.getElementById("tOut").innerHTML =
+      `<div style="font-size:1.05rem">Inside ${orphan ? "<em>no parent</em>" : "<code>&lt;" + parent.replace("__none__","") + "&gt;</code>"},
+        an <code>&lt;${el}&gt;</code> inherits: <strong style="color:#f5c842">${model}</strong>.</div>
+       <p class="lead">So this <code>&lt;${el}&gt;</code> ${canBlocks
+         ? "MAY contain flow blocks like <code>&lt;p&gt;</code>, <code>&lt;h2&gt;</code>, <code>&lt;div&gt;</code>."
+         : "may contain ONLY phrasing (<code>&lt;span&gt;</code>, <code>&lt;em&gt;</code>, text) — no <code>&lt;div&gt;</code>/<code>&lt;h2&gt;</code>."}
+         ${orphan ? "It's an orphan, so it defaults to flow regardless of where it might later be inserted — a fragment-sanitizing hazard." : ""}</p>`;
+  }
+  btn.addEventListener("click", run);
+  document.getElementById("tEl").addEventListener("change", run);
+  document.getElementById("tParent").addEventListener("change", run);
+  run();
+})();
+</script>
+</body>
+</html>

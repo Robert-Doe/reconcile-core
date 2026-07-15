@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Embedded & Interactive content</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#fb923c;--accent-2:#f87171}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Categories hub</a>
+  <a href="sectioning_and_heading.html">◂ Sectioning &amp; Heading</a>
+  <a href="transparent_content.html">Transparent ▸</a>
+</nav>
+
+<p class="kicker">Content Categories · 4 of 7</p>
+<h1>Embedded &amp; Interactive Content</h1>
+<p class="lead">Of all seven categories, these two carry the most security
+weight. Embedded content pulls in <em>external resources or foreign vocabularies</em>;
+interactive content is the <em>activation surface</em>. A defender should treat
+both as "not allowed in untrusted HTML" by default.</p>
+
+<h2>Embedded content — importing another world</h2>
+<p>The spec: content "that imports another resource into the document, or content
+from another vocabulary that is inserted into the document." The elements:</p>
+<div class="payload"><label class="lead">Category: <select id="ccCat" class="flt" style="max-width:200px"></select></label></div>
+<div id="ccFilter" class="card">…</div>
+<p class="lead">(Set the selector to <strong>embedded</strong> or
+<strong>interactive</strong>.)</p>
+
+<table>
+<thead><tr><th>Embedded element</th><th>What it imports</th><th>Security surface</th></tr></thead>
+<tbody>
+<tr><td><code>&lt;img&gt;</code></td><td>an image</td><td>URL sink; <code>onerror</code> handler; SVG-as-image quirks</td></tr>
+<tr><td><code>&lt;iframe&gt;</code></td><td>a nested browsing context</td><td><code>src</code>/<code>srcdoc</code> = full-document sinks; framing</td></tr>
+<tr><td><code>&lt;embed&gt;</code>, <code>&lt;object&gt;</code></td><td>plugins/other docs</td><td><code>src</code>/<code>data</code> = URL/scheme sinks</td></tr>
+<tr><td><code>&lt;video&gt;</code>, <code>&lt;audio&gt;</code></td><td>media</td><td><code>src</code> + <code>onerror</code> on <code>&lt;source&gt;</code>; transparent (page 5)</td></tr>
+<tr><td><code>&lt;svg&gt;</code>, <code>&lt;math&gt;</code></td><td>a foreign vocabulary</td><td><strong>own parser rules</strong> (Track B4), own <code>&lt;script&gt;</code>, integration-point mXSS</td></tr>
+<tr><td><code>&lt;canvas&gt;</code></td><td>a scriptable bitmap</td><td>transparent fallback content</td></tr>
+</tbody>
+</table>
+<div class="card danger">
+<div class="callout-title" style="color:#fb923c;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">⚠️ The big one: embedded content is also phrasing</div>
+Because embedded content nests inside phrasing (page 1's Euler diagram), an
+<code>&lt;img&gt;</code>/<code>&lt;svg&gt;</code> is allowed <em>anywhere text is
+allowed</em> — including inside a <code>&lt;p&gt;</code>, an <code>&lt;a&gt;</code>,
+a <code>&lt;span&gt;</code>. So "I only allow inline formatting" does <strong>not</strong>
+exclude embedded content unless you say so explicitly. This is a classic sanitizer
+allowlist mistake: permit phrasing, forget that <code>&lt;svg&gt;</code> is
+phrasing, and you've allowed a foreign parser with its own <code>&lt;script&gt;</code>.
+</div>
+
+<h2>Interactive content — the activation surface</h2>
+<p>Content "specifically intended for user interaction": <code>&lt;a&gt;</code>
+(with href), <code>&lt;button&gt;</code>, <code>&lt;input&gt;</code> (unless
+hidden), <code>&lt;select&gt;</code>, <code>&lt;textarea&gt;</code>,
+<code>&lt;details&gt;</code>, <code>&lt;label&gt;</code>, plus media with
+<code>controls</code> and <code>&lt;img usemap&gt;</code>/<code>&lt;object usemap&gt;</code>.</p>
+<ul>
+<li><strong>Nesting rule:</strong> interactive content generally must not be
+nested inside other interactive content (no <code>&lt;a&gt;</code> inside an
+<code>&lt;a&gt;</code>, no <code>&lt;button&gt;</code> inside an
+<code>&lt;a&gt;</code>) — a conformance rule with real UX/security reasons
+(ambiguous activation targets).</li>
+<li><strong>Conditional membership:</strong> whether an element <em>is</em>
+interactive can depend on attributes (<code>&lt;input type=hidden&gt;</code> is
+not; <code>&lt;video controls&gt;</code> is). Your categorizer marks these with a
+<code>*</code>.</li>
+</ul>
+<p>Check the conditionals live:</p>
+<div class="payload">
+  <input id="ccIn" value="audio">
+  <button id="ccBtn" class="run">categorize</button>
+</div>
+<div id="ccOut" class="card">…</div>
+
+<h2>The defender's rule of thumb</h2>
+<div class="card safe">
+For untrusted/user HTML: <strong>allow a phrasing subset + a few flow blocks;
+deny embedded and interactive content wholesale</strong> (no
+<code>iframe</code>/<code>object</code>/<code>embed</code>/<code>svg</code>/<code>math</code>/<code>canvas</code>,
+no form controls, and constrain <code>&lt;a href&gt;</code> to safe schemes).
+Everything dangerous in the main course's mechanism taxonomy lives in these two
+categories or in <code>&lt;a&gt;</code>'s URL — so excluding them by category is a
+principled, near-complete filter.
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>Your sanitizer allows "all phrasing content." Name three <em>dangerous</em>
+elements you just accidentally allowed, and why (hint: embedded ⊂ phrasing).</li>
+<li>Why is <code>&lt;input type=hidden&gt;</code> not interactive content, and how
+does the categorizer show that?</li>
+<li>Give the conformance rule about nesting interactive content and one reason it
+exists.</li>
+</ol>
+</div>
+
+<footer>
+Content Categories 4/7 · <a href="transparent_content.html">Next: Transparent content models ▸</a>
+</footer>
+
+<script src="content_categories.js"></script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paragraphs — the concept, not just <p></title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#4ade80;--accent-2:#2dd4bf}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Categories hub</a>
+  <a href="transparent_content.html">◂ Transparent</a>
+  <a href="security.html">Security ▸</a>
+</nav>
+
+<p class="kicker">Content Categories · 6 of 7</p>
+<h1>Paragraphs: the concept, not just <code>&lt;p&gt;</code></h1>
+<p class="lead">Surprise: in the spec, a "paragraph" is <em>not</em> the
+<code>&lt;p&gt;</code> element. It's an abstract structural unit — a run of
+phrasing content — that exists whether or not you wrapped it in any tag. The
+<code>&lt;p&gt;</code> element just makes one explicit.</p>
+
+<h2>The definition</h2>
+<p>A paragraph is "typically a run of phrasing content that forms a block of text
+with one or more sentences," but the spec generalizes it: an address, part of a
+form, a byline, or a stanza is also a paragraph. It's a <em>thematic run of
+phrasing</em>, not a specific element.</p>
+
+<h2>How paragraphs are delimited (the algorithm, simplified)</h2>
+<p>Inside an element that accepts <em>both</em> phrasing and non-phrasing content
+(like a <code>&lt;div&gt;</code>), the spec finds paragraphs like this:</p>
+<div class="card">
+<ol>
+<li>Walk the child nodes.</li>
+<li>Each <strong>run of sibling phrasing nodes</strong>, uninterrupted by
+non-phrasing content, is a candidate paragraph.</li>
+<li>The run is a paragraph if it contains at least one node that is <em>not</em>
+just embedded content or inter-element whitespace.</li>
+<li>The transparent straddlers <code>a</code>, <code>ins</code>,
+<code>del</code>, <code>map</code> are <strong>ignored</strong> when finding
+boundaries (they can span across).</li>
+</ol>
+</div>
+<p>So two text runs separated by a <code>&lt;div&gt;</code> or an
+<code>&lt;h2&gt;</code> are <em>two</em> paragraphs; text and an
+<code>&lt;em&gt;</code> and more text in a row are <em>one</em>.</p>
+
+<h2>Find the paragraphs (live)</h2>
+<p>Enter flow content; we walk its children (real parser, inert) and mark each
+run of phrasing content as a paragraph, breaking at non-phrasing (block)
+elements.</p>
+<div class="payload">
+  <input id="pIn" value="Intro text <em>emph</em> and more.<h2>Heading</h2>Second run here.<div>block</div>Third.">
+  <button id="pBtn" class="run">find paragraphs</button>
+</div>
+<div id="pOut" class="card">…</div>
+
+<h2>When do you actually need <code>&lt;p&gt;</code>?</h2>
+<p>The spec's guidance: use <code>&lt;p&gt;</code> to wrap individual paragraphs
+"when there would otherwise not be any content other than phrasing content to
+separate the paragraphs from each other." I.e. if two phrasing runs sit next to
+each other with nothing block-level between them, they'd merge into <em>one</em>
+paragraph — so you add <code>&lt;p&gt;</code> to keep them distinct.</p>
+<pre><code>&lt;!-- one paragraph (runs merge): --&gt;
+&lt;div&gt;First thought. Second thought.&lt;/div&gt;
+
+&lt;!-- two paragraphs (explicitly separated): --&gt;
+&lt;div&gt;&lt;p&gt;First thought.&lt;/p&gt;&lt;p&gt;Second thought.&lt;/p&gt;&lt;/div&gt;</code></pre>
+
+<div class="card">
+<div class="callout-title" style="color:#4ade80;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧠 Brain Power — the tie to security</div>
+Why would a security researcher care about an <em>abstract</em> paragraph model?
+Because it's another place where <strong>structure is computed from a run of
+nodes, and transparent elements are deliberately skipped.</strong> Any algorithm
+that "ignores <code>a/ins/del/map</code> when scanning" is an algorithm an
+attacker can hide inside — content that a scanner skips can carry a payload a
+sink later honors. The paragraph algorithm is a benign example of the same
+node-run-scanning pattern that, in sanitizers, becomes a bypass.
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>How many paragraphs are in
+<code>&lt;div&gt;a &lt;em&gt;b&lt;/em&gt; c&lt;h3&gt;H&lt;/h3&gt;d&lt;/div&gt;</code>?
+Predict, then check with the demo.</li>
+<li>Why does the algorithm ignore <code>&lt;a&gt;</code> when finding boundaries?
+(Tie to page 5.)</li>
+<li>Give a case where you must add <code>&lt;p&gt;</code> or two paragraphs would
+merge into one.</li>
+</ol>
+</div>
+
+<footer>
+Content Categories 6/7 · <a href="security.html">Next: Why categories matter for defense ▸</a>
+</footer>
+
+<script src="content_categories.js"></script>
+<script>
+(function () {
+  function isPhrasing(node) {
+    if (node.nodeType === Node.TEXT_NODE) return true;
+    if (node.nodeType !== Node.ELEMENT_NODE) return false;
+    const e = window.CC && window.CC.EL[node.tagName.toLowerCase()];
+    return !!(e && e.cats.includes("phrasing"));
+  }
+  function isWhitespaceText(node) {
+    return node.nodeType === Node.TEXT_NODE && !node.textContent.trim();
+  }
+  function esc(s){return String(s).replace(/[&<>]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+  document.getElementById("pBtn").addEventListener("click", run);
+  function run() {
+    const t = document.createElement("template");
+    t.innerHTML = "<div>" + document.getElementById("pIn").value + "</div>";
+    const div = t.content.querySelector("div");
+    const paras = []; let cur = [];
+    div.childNodes.forEach((n) => {
+      if (isPhrasing(n)) { cur.push(n); }
+      else { if (cur.length) { paras.push(cur); cur = []; } }
+    });
+    if (cur.length) paras.push(cur);
+    // keep only runs with a non-whitespace, non-embedded node
+    const real = paras.filter((run) => run.some((n) => {
+      if (isWhitespaceText(n)) return false;
+      const e = n.nodeType===Node.ELEMENT_NODE && window.CC.EL[n.tagName.toLowerCase()];
+      const embeddedOnly = e && e.cats.includes("embedded") && !e.cats.includes("phrasing");
+      return !embeddedOnly;
+    }));
+    const html = real.map((run, i) => {
+      const text = run.map((n) => n.nodeType===Node.TEXT_NODE ? n.textContent : "<"+n.tagName.toLowerCase()+">"+n.textContent+"</"+n.tagName.toLowerCase()+">").join("");
+      return `<div style="border-left:3px solid #4ade80;padding:4px 10px;margin:6px 0;background:#4ade8011">
+        <span style="color:#4ade80;font-family:var(--mono);font-size:.75rem">paragraph ${i+1}</span><br>
+        <code>${esc(text).trim()}</code></div>`;
+    }).join("");
+    document.getElementById("pOut").innerHTML =
+      `<p class="lead">Found <strong>${real.length}</strong> paragraph(s). Block elements (h2, div, ul…) break the runs.</p>` + html;
+  }
+  run();
+})();
+</script>
+</body>
+</html>

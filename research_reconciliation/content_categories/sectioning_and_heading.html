@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sectioning & Heading content</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#a78bfa;--accent-2:#f5c842}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Categories hub</a>
+  <a href="flow_and_phrasing.html">◂ Flow &amp; Phrasing</a>
+  <a href="embedded_and_interactive.html">Embedded &amp; Interactive ▸</a>
+</nav>
+
+<p class="kicker">Content Categories · 3 of 7</p>
+<h1>Sectioning &amp; Heading Content</h1>
+<p class="lead">These two categories exist to answer one question: "what is the
+title of this region, and how deep is it?" They're flow content, but a special
+kind — the structural skeleton of a document.</p>
+
+<h2>Sectioning content — scopes for headings and footers</h2>
+<p>The spec defines sectioning content as content "that defines the scope of
+headings and footers." Just four elements:</p>
+<table>
+<thead><tr><th>Element</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>&lt;article&gt;</code></td><td>a self-contained, independently distributable composition</td></tr>
+<tr><td><code>&lt;aside&gt;</code></td><td>content tangential to the surrounding content</td></tr>
+<tr><td><code>&lt;nav&gt;</code></td><td>a section of navigation links</td></tr>
+<tr><td><code>&lt;section&gt;</code></td><td>a generic thematic grouping</td></tr>
+</tbody>
+</table>
+<p>Each one starts a new <strong>sectioning scope</strong>: headings inside it
+belong to <em>it</em>, not to the document as a whole.</p>
+
+<h2>Heading content — the header of a section</h2>
+<p>Heading content is <code>&lt;h1&gt;</code>–<code>&lt;h6&gt;</code> plus
+<code>&lt;hgroup&gt;</code>. A heading "defines the header of a section — whether
+explicitly marked up using sectioning content, or implied by the heading content
+itself." That parenthetical is the interesting part: a bare
+<code>&lt;h2&gt;</code> with no surrounding <code>&lt;section&gt;</code>
+<em>implicitly</em> starts a section.</p>
+
+<div class="card">
+<div class="callout-title" style="color:#a78bfa;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧠 Brain Power — the document outline</div>
+In this draft's model, sectioning + heading content together produce a
+<em>document outline</em> (like a table of contents the browser could compute).
+An <code>&lt;h1&gt;</code> inside a nested <code>&lt;section&gt;</code> is a
+sub-heading, not a top-level one, regardless of the number "1". <em>(Modern HTML
+has since walked back the auto-outline algorithm — accessibility tools never
+implemented it — so today you should still use <code>h1</code>–<code>h6</code>
+levels meaningfully. Good example of a spec idea that didn't survive contact with
+implementations.)</em>
+</div>
+
+<h2>Categorize them</h2>
+<div class="payload">
+  <input id="ccIn" value="section">
+  <button id="ccBtn" class="run">categorize</button>
+</div>
+<div id="ccOut" class="card">…</div>
+<p class="lead">Note: sectioning &amp; heading are flow but <strong>not</strong>
+phrasing — so they can't live inside a <code>&lt;p&gt;</code> or
+<code>&lt;span&gt;</code>. That's the block boundary again.</p>
+
+<h2>Security relevance (smaller, but real)</h2>
+<div class="card">
+<ul>
+<li>Sectioning/heading elements are <em>structural</em> and generally safe to
+allow in rich-text sanitizers — they carry no URL/script/embedded surface.</li>
+<li>But they interact with <strong>DOM clobbering</strong> (Track A3): injecting
+<code>&lt;section id=…&gt;</code>/<code>&lt;nav name=…&gt;</code> still creates
+named references. Structural ≠ inert with respect to <em>naming</em>.</li>
+<li><code>&lt;hgroup&gt;</code> and outline quirks are mostly a correctness/a11y
+concern, not a direct XSS vector.</li>
+</ul>
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>Why can't a <code>&lt;section&gt;</code> appear inside a
+<code>&lt;p&gt;</code>? Answer in category terms.</li>
+<li>What does it mean that a lone <code>&lt;h3&gt;</code> "implies" a section?</li>
+<li>Are sectioning elements safe to allow in a comment sanitizer? What non-XSS
+surface do they still bring (hint: Track A3)?</li>
+</ol>
+</div>
+
+<footer>
+Content Categories 3/7 · <a href="embedded_and_interactive.html">Next: Embedded &amp; Interactive ▸</a>
+</footer>
+
+<script src="content_categories.js"></script>
+</body>
+</html>

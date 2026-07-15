@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow ⊃ Phrasing — the big two</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#2dd4bf;--accent-2:#38bdf8}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Categories hub</a>
+  <a href="kinds_of_content.html">◂ Kinds of content</a>
+  <a href="sectioning_and_heading.html">Sectioning &amp; Heading ▸</a>
+</nav>
+
+<p class="kicker">Content Categories · 2 of 7</p>
+<h1>Flow ⊃ Phrasing: the big two</h1>
+<p class="lead">Ninety percent of everyday HTML nesting comes down to one
+relationship: <strong>phrasing content is a subset of flow content.</strong>
+That's the modern, precise version of the old "inline vs block" intuition.</p>
+
+<h2>Flow content — the body's default</h2>
+<p>The spec's own summary is blunt: most elements used in the body are flow
+content. If you're wondering "can this go in a <code>&lt;div&gt;</code>, a
+<code>&lt;section&gt;</code>, a <code>&lt;figure&gt;</code>?", the answer is
+usually "yes, if it's flow" — because those containers accept flow content.</p>
+
+<h2>Phrasing content — text and its inline markup</h2>
+<p>Phrasing content is, in the spec's words, "the text of the document, as well as
+elements that mark up that text at the intra-paragraph level." Think
+<code>&lt;span&gt;</code>, <code>&lt;em&gt;</code>, <code>&lt;strong&gt;</code>,
+<code>&lt;a&gt;</code>, <code>&lt;code&gt;</code>, <code>&lt;br&gt;</code>, and raw
+Text nodes. Runs of phrasing content are what form <em>paragraphs</em> (page 6).</p>
+
+<h2>The subset rule, made concrete</h2>
+<table>
+<thead><tr><th>Container</th><th>Its content model</th><th>So it accepts…</th><th>Rejects…</th></tr></thead>
+<tbody>
+<tr><td><code>&lt;div&gt;</code></td><td>flow</td><td>flow (incl. all phrasing)</td><td>—</td></tr>
+<tr><td><code>&lt;p&gt;</code></td><td>phrasing</td><td>phrasing only (<code>span</code>, <code>a</code>, <code>img</code>…)</td><td>flow-but-not-phrasing (<code>div</code>, <code>ul</code>, <code>section</code>)</td></tr>
+<tr><td><code>&lt;span&gt;</code></td><td>phrasing</td><td>phrasing only</td><td><code>div</code>, <code>p</code>, <code>table</code></td></tr>
+</tbody>
+</table>
+<div class="card">
+<div class="callout-title" style="color:#2dd4bf;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">💡 The "why can't I nest a div in a p" answer</div>
+Because <code>&lt;p&gt;</code>'s content model is <em>phrasing</em>, and
+<code>&lt;div&gt;</code> is flow-but-not-phrasing. The parser even enforces this:
+open a <code>&lt;div&gt;</code> inside a <code>&lt;p&gt;</code> and the parser
+<em>auto-closes the <code>&lt;p&gt;</code></em> first (a tree-construction rule —
+tie this to the main course's Module 02 / Track B foster-parenting family).
+</div>
+
+<h2>Categorize to see the overlap</h2>
+<p>Check a few: <code>span</code> (flow+phrasing), <code>div</code> (flow only),
+<code>img</code> (flow+phrasing+embedded). The presence or absence of "phrasing"
+is the block/inline line.</p>
+<div class="payload">
+  <input id="ccIn" value="div">
+  <button id="ccBtn" class="run">categorize</button>
+</div>
+<div id="ccOut" class="card">…</div>
+
+<h2>Why a defender cares</h2>
+<div class="card danger">
+<strong>Sanitizer allowlists are content-category allowlists in disguise.</strong>
+When you configure DOMPurify (or the native Sanitizer) to allow
+"<code>b i em strong a code span</code>", you are permitting a hand-picked slice
+of <em>phrasing content</em>. When you allow "<code>p ul ol li blockquote</code>",
+you're adding some <em>flow</em> containers. Understanding the categories lets you
+reason about your allowlist as a coherent set ("phrasing + a few safe flow
+blocks") instead of an ad-hoc tag list — and spot the dangerous outliers
+(embedded content, interactive content, transparent elements) that don't belong
+in user HTML at all.
+</div>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>Explain, in content-model terms, why the browser auto-closes a
+<code>&lt;p&gt;</code> when you open a <code>&lt;ul&gt;</code> inside it.</li>
+<li>You're building a comment sanitizer that allows basic formatting. Express your
+allowlist as "phrasing subset + which flow blocks," and name three categories you
+should exclude entirely.</li>
+<li>Is <code>&lt;a&gt;</code> phrasing? (Trick — only if it contains only phrasing
+content. Page 5 explains why.)</li>
+</ol>
+</div>
+
+<footer>
+Content Categories 2/7 · <a href="sectioning_and_heading.html">Next: Sectioning &amp; Heading ▸</a>
+</footer>
+
+<script src="content_categories.js"></script>
+</body>
+</html>

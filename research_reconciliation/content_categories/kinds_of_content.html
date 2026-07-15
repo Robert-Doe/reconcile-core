@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kinds of Content & the Euler Diagram</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#38bdf8;--accent-2:#a78bfa}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="index.html">◂ Content Categories hub</a>
+  <a href="flow_and_phrasing.html">Flow &amp; Phrasing ▸</a>
+</nav>
+
+<p class="kicker">Content Categories · 1 of 7</p>
+<h1>Kinds of Content &amp; the Euler Diagram</h1>
+<p class="lead">Seven categories, but they're not seven separate buckets — they
+<em>overlap and nest</em>. Getting the nesting right is the difference between
+"guessing what can go where" and knowing it.</p>
+
+<h2>The relationships (this is the key picture)</h2>
+<p>The spec draws these as nested sets. In words:</p>
+<ul>
+<li><strong>Sectioning, Heading, Phrasing, and Embedded are all kinds of
+Flow.</strong> Flow is the big outer set — most body content.</li>
+<li><strong>Embedded is also a kind of Phrasing.</strong> So an
+<code>&lt;img&gt;</code> is embedded <em>and</em> phrasing <em>and</em> flow, all
+at once.</li>
+<li><strong>Metadata</strong> mostly stands apart (head-level), though a few
+elements (<code>script</code>, <code>noscript</code>, scoped <code>style</code>)
+are both metadata and flow.</li>
+<li><strong>Interactive</strong> cuts across flow (e.g. <code>a</code>,
+<code>button</code>, <code>input</code>).</li>
+</ul>
+
+<div class="card">
+<svg viewBox="0 0 640 360" width="100%" style="max-width:640px;display:block;margin:auto" font-family="Lato, sans-serif">
+  <rect x="10" y="10" width="620" height="340" rx="12" fill="none" stroke="#38bdf8" stroke-width="2"/>
+  <text x="24" y="34" fill="#38bdf8" font-size="15" font-weight="700">Flow content</text>
+
+  <rect x="40" y="60" width="150" height="90" rx="10" fill="#a78bfa22" stroke="#a78bfa" stroke-width="2"/>
+  <text x="52" y="82" fill="#a78bfa" font-size="13" font-weight="700">Sectioning</text>
+  <text x="52" y="102" fill="#cbd5e1" font-size="11">article, aside,</text>
+  <text x="52" y="118" fill="#cbd5e1" font-size="11">nav, section</text>
+
+  <rect x="210" y="60" width="150" height="90" rx="10" fill="#f5c84222" stroke="#f5c842" stroke-width="2"/>
+  <text x="222" y="82" fill="#f5c842" font-size="13" font-weight="700">Heading</text>
+  <text x="222" y="102" fill="#cbd5e1" font-size="11">h1–h6,</text>
+  <text x="222" y="118" fill="#cbd5e1" font-size="11">hgroup</text>
+
+  <rect x="40" y="175" width="470" height="150" rx="10" fill="#2dd4bf18" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="52" y="197" fill="#2dd4bf" font-size="13" font-weight="700">Phrasing content</text>
+  <text x="52" y="217" fill="#cbd5e1" font-size="11">span, em, strong, a, code, br, Text…</text>
+
+  <rect x="300" y="235" width="190" height="75" rx="10" fill="#fb923c22" stroke="#fb923c" stroke-width="2"/>
+  <text x="312" y="257" fill="#fb923c" font-size="13" font-weight="700">Embedded</text>
+  <text x="312" y="277" fill="#cbd5e1" font-size="11">img, iframe, video,</text>
+  <text x="312" y="293" fill="#cbd5e1" font-size="11">audio, svg, object, canvas</text>
+
+  <rect x="530" y="60" width="90" height="265" rx="10" fill="#f8717118" stroke="#f87171" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="544" y="82" fill="#f87171" font-size="12" font-weight="700">Inter-</text>
+  <text x="544" y="98" fill="#f87171" font-size="12" font-weight="700">active</text>
+  <text x="544" y="120" fill="#cbd5e1" font-size="10">a, button,</text>
+  <text x="544" y="134" fill="#cbd5e1" font-size="10">input, select,</text>
+  <text x="544" y="148" fill="#cbd5e1" font-size="10">details…</text>
+  <text x="540" y="315" fill="#7a9bbf" font-size="9">(crosses flow)</text>
+</svg>
+<p class="lead">Embedded sits <em>inside</em> phrasing, which sits inside flow.
+Interactive (dashed) is a cross-cutting category. Heading and sectioning are flow
+but <em>not</em> phrasing — that's the block-level boundary.</p>
+</div>
+
+<h2>Why the nesting is the useful part</h2>
+<div class="card">
+<div class="callout-title" style="color:#38bdf8;font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.5rem">🧠 Brain Power</div>
+A <code>&lt;p&gt;</code>'s content model is "phrasing content." Given the diagram,
+can a <code>&lt;p&gt;</code> contain an <code>&lt;img&gt;</code>? A
+<code>&lt;div&gt;</code>? (Yes to <code>&lt;img&gt;</code> — it's phrasing (and
+embedded). No to <code>&lt;div&gt;</code> — it's flow but not phrasing. That one
+rule explains "why can't I put a div in a p.")
+</div>
+
+<h2>Filter elements by category (live)</h2>
+<p>Pick a category; see every element in it (from the teaching subset). Hover the
+starred ones for their conditional rule.</p>
+<p><label class="lead">Category:
+  <select id="ccCat" class="flt" style="max-width:220px"></select></label></p>
+<div id="ccFilter" class="card">…</div>
+
+<h2>Two footnotes the spec insists on</h2>
+<ul>
+<li><strong>Inter-element whitespace</strong> — spaces/newlines between elements
+are always allowed and are ignored when checking a content model. (Relevant to
+parsers and to "why does my formatting not break conformance.")</li>
+<li><strong>Multiple membership</strong> — many elements are in several
+categories at once, sometimes <em>conditionally</em> (an <code>&lt;input&gt;</code>
+is interactive unless <code>type=hidden</code>; an <code>&lt;a&gt;</code> is
+phrasing only if it contains only phrasing content). Those conditionals are where
+transparent content (page 5) comes in.</li>
+</ul>
+
+<h2>Sharpen your pencil</h2>
+<div class="card">
+<ol>
+<li>From the diagram, name a category that is a subset of both flow and phrasing.
+(Embedded.)</li>
+<li>Why can a <code>&lt;span&gt;</code> (phrasing) hold an <code>&lt;img&gt;</code>
+but not a <code>&lt;section&gt;</code>?</li>
+<li>Give two elements that belong to <em>four</em> categories at once and say
+which memberships are conditional.</li>
+</ol>
+</div>
+
+<footer>
+Content Categories 1/7 · <a href="flow_and_phrasing.html">Next: Flow ⊃ Phrasing — the big two ▸</a>
+</footer>
+
+<script src="content_categories.js"></script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The HTML Content Model — Content Categories</title>
+<link rel="stylesheet" href="../../assets/lab.css">
+<style>:root{--accent:#38bdf8;--accent-2:#a78bfa}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab</a>
+  <a href="../index.html">◂ Research hub</a>
+  <a href="../content_models/index.html">↔ the OTHER "content models"</a>
+  <a href="kinds_of_content.html">Kinds of content ▸</a>
+</nav>
+
+<p class="kicker">Content Categories · Head First · from the HTML5 spec</p>
+<h1>The HTML Content Model: Categories, Transparency &amp; Paragraphs</h1>
+<p class="lead">The spec gives every element a <em>content model</em> — a
+description of what it's allowed to contain. To make that tractable it sorts
+elements into a handful of <strong>content categories</strong>. Learn the
+categories and you can predict what may nest in what — which is exactly the
+knowledge a sanitizer allowlist encodes.</p>
+
+<div class="warn">
+<strong>Heads-up: "content model" means two different things.</strong> You just
+studied one meaning in the <a href="../content_models/index.html">Content Models</a>
+module. They are <em>not</em> the same:
+<table style="margin-top:.6rem">
+<thead><tr><th>"Content model" (parser sense)</th><th>"Content model" (this module, spec sense)</th></tr></thead>
+<tbody>
+<tr><td>How the <em>tokenizer</em> treats a run of text: DATA / RCDATA / RAWTEXT / CDATA</td><td>What <em>elements/categories</em> an element may <em>contain</em>: flow, phrasing, …</td></tr>
+<tr><td>About parsing bytes → text vs markup</td><td>About the tree's allowed shape (nesting/conformance)</td></tr>
+<tr><td>Security: parse-differentials &amp; mXSS</td><td>Security: sanitizer allowlist design, transparent-element surprises</td></tr>
+</tbody>
+</table>
+Both matter; this module is the second one. Source: HTML5 (2011-05-25 W3C Working
+Draft), "Content models."</div>
+
+<h2>The spec's one-sentence idea</h2>
+<div class="card">
+Every element "has a content model: a description of the element's expected
+contents." An element's contents must match that model. Categories are the
+vocabulary those descriptions are written in.
+</div>
+
+<h2>The seven kinds of content</h2>
+<table>
+<thead><tr><th>Category</th><th>Roughly…</th><th>Example elements</th></tr></thead>
+<tbody>
+<tr><td style="color:#7a9bbf"><strong>Metadata</strong></td><td>out-of-band info / document setup</td><td><code>title</code>, <code>meta</code>, <code>link</code>, <code>script</code>, <code>style</code></td></tr>
+<tr><td style="color:#38bdf8"><strong>Flow</strong></td><td>most things that live in <code>&lt;body&gt;</code></td><td><code>p</code>, <code>div</code>, <code>section</code>, <code>span</code>, <code>img</code>, …</td></tr>
+<tr><td style="color:#a78bfa"><strong>Sectioning</strong></td><td>defines the scope of headings/footers</td><td><code>article</code>, <code>aside</code>, <code>nav</code>, <code>section</code></td></tr>
+<tr><td style="color:#f5c842"><strong>Heading</strong></td><td>the header of a section</td><td><code>h1</code>–<code>h6</code>, <code>hgroup</code></td></tr>
+<tr><td style="color:#2dd4bf"><strong>Phrasing</strong></td><td>text &amp; intra-paragraph markup</td><td><code>span</code>, <code>em</code>, <code>a</code>, <code>img</code>, Text</td></tr>
+<tr><td style="color:#fb923c"><strong>Embedded</strong></td><td>imports another resource/vocabulary</td><td><code>img</code>, <code>iframe</code>, <code>video</code>, <code>svg</code>, <code>object</code></td></tr>
+<tr><td style="color:#f87171"><strong>Interactive</strong></td><td>intended for user interaction</td><td><code>a</code>, <code>button</code>, <code>input</code>, <code>select</code></td></tr>
+</tbody>
+</table>
+
+<h2>Categorize an element (live)</h2>
+<p>Type an element name; see every category it belongs to (with the conditional
+rules). Data encoded from the 2011 WD.</p>
+<div class="payload">
+  <input id="ccIn" value="a">
+  <button id="ccBtn" class="run">categorize</button>
+</div>
+<div id="ccOut" class="card">…</div>
+<p class="lead">Try <code>a</code>, <code>audio</code>, <code>img</code>,
+<code>input</code>, <code>script</code>, <code>object</code> — the multi-category
+ones are where sanitizers get surprised.</p>
+
+<h2>The pages of this module</h2>
+<div class="card" style="border-left:4px solid #38bdf8">
+<h3 style="margin-top:0"><a href="kinds_of_content.html">1 · Kinds of content &amp; the Euler diagram</a></h3>
+<p>All seven categories, and the crucial nesting: sectioning/heading/phrasing/
+embedded are all <em>flow</em>; embedded is also <em>phrasing</em>. Live filter by
+category.</p>
+</div>
+<div class="card" style="border-left:4px solid #2dd4bf">
+<h3 style="margin-top:0"><a href="flow_and_phrasing.html">2 · Flow ⊃ Phrasing — the big two</a></h3>
+<p>The block-vs-inline distinction the whole model pivots on, and why sanitizer
+allowlists are basically "which phrasing/flow elements do I permit?"</p>
+</div>
+<div class="card" style="border-left:4px solid #a78bfa">
+<h3 style="margin-top:0"><a href="sectioning_and_heading.html">3 · Sectioning &amp; Heading</a></h3>
+<p><code>article</code>/<code>aside</code>/<code>nav</code>/<code>section</code> and
+<code>h1</code>–<code>h6</code>/<code>hgroup</code>, and the document-outline idea.</p>
+</div>
+<div class="card" style="border-left:4px solid #fb923c">
+<h3 style="margin-top:0"><a href="embedded_and_interactive.html">4 · Embedded &amp; Interactive</a></h3>
+<p>The two categories that carry the most security weight: embedded = external
+resource / foreign parser; interactive = focus/activation surface.</p>
+</div>
+<div class="card" style="border-left:4px solid #f5c842">
+<h3 style="margin-top:0"><a href="transparent_content.html">5 · Transparent content models</a></h3>
+<p><code>a</code>, <code>ins</code>, <code>del</code>, <code>map</code>,
+<code>object</code>, <code>video</code>, <code>audio</code>: elements whose
+allowed content is <em>inherited from their parent</em>. Live demo.</p>
+</div>
+<div class="card" style="border-left:4px solid #4ade80">
+<h3 style="margin-top:0"><a href="paragraphs.html">6 · Paragraphs (the concept, not just <code>&lt;p&gt;</code>)</a></h3>
+<p>The spec's formal, algorithmic notion of a paragraph — runs of phrasing
+content — and why <code>&lt;p&gt;</code> is only sometimes needed.</p>
+</div>
+<div class="card" style="border-left:4px solid #f87171">
+<h3 style="margin-top:0"><a href="security.html">7 · Why categories matter for defense</a></h3>
+<p>Mapping content categories onto sanitizer allowlists, transparent-element
+pitfalls, and the tie-back to mXSS and the Track F fallback.</p>
+</div>
+
+<footer>
+Content Categories module · concepts from HTML5 (2011-05-25 WD), "Content models"
+· sibling of the parser-level <a href="../content_models/index.html">Content Models</a> module.
+</footer>
+
+<script src="content_categories.js"></script>
+</body>
+</html>
