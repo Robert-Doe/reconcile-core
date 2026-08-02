@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 06 · The Unit-of-Work Loop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#2E6B33; --accent-bg:#E9F3E9; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 3: The Work Loop</p>
+  <h1>Module 06<em>The Unit-of-Work Loop</em></h1>
+  <p class="thesis">Module 04's <code>mount()</code> works, but it's recursive — it can't be paused, because pausing a recursive call means pausing the JS call stack itself, which you don't control. This module rebuilds the exact same tree using nothing but an explicit "what's next" pointer, and proves — by tracing both — that the result is identical.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p><code>beginWork</code> does <span class="hi">one fiber's work, one level of children, never recursing</span>. The loop calling it repeatedly is what provides depth — not the call stack. Stack depth stays constant no matter how deep the tree is.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_explicit_loop_vs_recursion.html">P3 · Explicit loop vs. recursion</a>
+    <a href="../prereqs/prereq_linked_list_tree.html">P2 · Linked-list trees</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">06</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>Module 04's <code>mount()</code> was a single courier who takes an entire package to its final destination in one uninterrupted trip, however many stops that takes — no matter how far, they don't come back to base until it's fully delivered. Module 06 replaces that courier with a relay: one runner goes exactly one leg, hands off a baton (a fiber reference) at a checkpoint, and steps aside. The next runner picks up the baton and runs the next leg. Nobody runs the whole route in one uninterrupted trip.</p>
+    <p>The destination reached is identical either way. What's different is that the relay can be paused between <em>any two legs</em> — the baton just sits at a checkpoint until someone picks it up again — while the single-courier version can only be paused by the courier themselves choosing to stop mid-stride, which recursive function calls in JS simply cannot do.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">06</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p><code>workLoopSync(rootFiber)</code>, for the tree <code>Card → div → [h1 → "Hi", "plain text", footer → "footer text"]</code>:</p>
+    <ol>
+      <li><code>next = rootFiber</code> (the <code>Card</code> fiber).</li>
+      <li><strong>Step 1:</strong> <code>performUnitOfWork(Card)</code> → <code>beginWork</code> calls the <code>Card</code> function, creates one child fiber (<code>div</code>), links it, returns it. <code>next = div</code>.</li>
+      <li><strong>Step 2:</strong> <code>performUnitOfWork(div)</code> → <code>beginWork</code> creates fibers for <em>all three</em> of div's children (<code>h1</code>, text, <code>footer</code>) as siblings, returns the first (<code>h1</code>). <code>next = h1</code>.</li>
+      <li><strong>Step 3:</strong> <code>performUnitOfWork(h1)</code> → creates its one text child, returns it. <code>next = "Hi"</code>.</li>
+      <li><strong>Step 4:</strong> <code>performUnitOfWork("Hi")</code> → <code>HostText</code>, no children, <code>beginWork</code> returns <code>null</code>. <code>completeUnitOfWork</code> checks <code>"Hi"</code>'s sibling — none (it's <code>h1</code>'s only child) — goes up to <code>h1</code>, checks <code>h1</code>'s sibling — the plain-text fiber. <code>next = "plain text child"</code>.</li>
+      <li>...and so on, until every fiber has been visited exactly once and <code>completeUnitOfWork</code> walks all the way back up past the root, returning <code>null</code>.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">06</span><h2>A Map of the State</h2></div>
+
+  <p>The single variable <code>next</code>, over time, IS the entire "where am I" state — nothing else needs saving:</p>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>The tree (fixed, built incrementally)</h4>
+      <pre class="tree">Card
+└─ div
+   ├─ h1
+   │  └─ "Hi"
+   ├─ "plain text child"
+   └─ footer
+      └─ "footer text"</pre>
+    </div>
+    <div class="railbox">
+      <h4><code>next</code>, one value per loop iteration</h4>
+      <ol class="stk">
+        <li><span>Card</span><span class="note">step 0</span></li>
+        <li><span>div</span><span class="note">step 1</span></li>
+        <li><span>h1</span><span class="note">step 2</span></li>
+        <li class="tgt"><span>"Hi"</span><span class="note">step 3</span></li>
+        <li><span>"plain text child"</span><span class="note">step 4</span></li>
+        <li><span>footer</span><span class="note">step 5</span></li>
+        <li><span>"footer text"</span><span class="note">step 6</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p><code>verify.mjs</code>'s manual trace prints exactly this sequence, generated by real, executed calls to <code>performUnitOfWork</code> — not hand-typed. Seven fibers, seven calls, one per fiber, confirmed by a counter that would print "RUNAWAY LOOP" if it ever exceeded 20.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">06</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3><code>beginWork</code> — exactly one level, never more</h3>
+    <pre><code>export function beginWork(fiber) {
+  if (fiber.tag === HostText) return null;
+
+  if (fiber.tag === FunctionComponent) {
+    const rendered = fiber.type(fiber.pendingProps);
+    const child = createFiberForValue(rendered);
+    appendChild(fiber, child);
+    return fiber.child;                    <span class="c">// ONE child. Not its grandchildren.</span>
+  }
+
+  const children = normalizeChildren(fiber.pendingProps.children);
+  for (const child of children) {
+    appendChild(fiber, createFiberForValue(child));  <span class="c">// siblings, not descended into</span>
+  }
+  return fiber.child;
+}</code></pre>
+    <p>Compare this to Module 04's <code>mount()</code>, which called <code>mount(child)</code> recursively right here. This version calls <code>createFiberForValue(child)</code> — no recursive call to <code>beginWork</code> anywhere. The <em>loop</em> (not this function) is what eventually visits each new child and goes one level deeper, on a later iteration.</p>
+
+    <h3><code>completeUnitOfWork</code> — sibling, then parent, repeat</h3>
+    <pre><code>export function completeUnitOfWork(unitOfWork) {
+  let completedWork = unitOfWork;
+  do {
+    const returnFiber = completedWork.return;
+    const siblingFiber = completedWork.sibling;
+    if (siblingFiber !== null) return siblingFiber;
+    completedWork = returnFiber;
+  } while (completedWork !== null);
+  return null;
+}</code></pre>
+    <p>Verified structurally against real React's identically-named function (line-cited in DECISIONS.md) — same sibling-first, then-go-up-and-repeat shape.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">06</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Actually stop the loop early — <code>workLoopSync</code> runs to completion, just like <code>mount()</code> did. The <em>capability</em> to stop exists now (constant stack depth); the code that <em>uses</em> it doesn't yet.</li>
+        <li>Update an existing tree — every run here still starts from a bare, childless fiber, exactly like a fresh mount.</li>
+        <li>Do anything to the real DOM.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Produce a fiber tree, proven identical to the recursive version, using an explicit loop instead of the call stack.</li>
+        <li>Point to the exact fiber the loop is "at" right now, at any moment, as a plain value — not something buried in stack frames.</li>
+        <li>Explain precisely why <code>beginWork</code> alone could never accidentally become recursive by accident — it structurally never calls itself, only <code>createFiberForValue</code> (which also never recurses).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">06</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">Path A (recursive mount): FunctionComponent(Card) → HostComponent(div) → HostComponent(h1) → HostText("Hello") → HostText("plain text child")
+Path B (explicit loop):   FunctionComponent(Card) → HostComponent(div) → HostComponent(h1) → HostText("Hello") → HostText("plain text child")
+
+Identical traversal order and tags: true
+...
+Total steps: 7
+Exactly 7 steps for 7 fibers (showFooter=true this time): true
+
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result?</span>
+    <p>If "Total steps" is higher than the fiber count, the most likely cause is a <code>completeUnitOfWork</code> that re-visits a fiber's sibling chain more than once — double check <code>completedWork = returnFiber</code> is only reached when <code>siblingFiber === null</code>, and that the <code>do...while</code> loop's exit condition (<code>completedWork !== null</code>) isn't accidentally inverted.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">06</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: at the moment <code>performUnitOfWork</code> is called for the <code>footer</code> fiber (step 5 in the map above), what is the JavaScript call stack's depth, measured from <code>workLoopSync</code>? And how does that number change if the tree were 100 levels deep instead of 3?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>The stack is <code>workLoopSync → performUnitOfWork → beginWork</code> (or <code>→ completeUnitOfWork</code>) — a small, fixed number of frames, regardless of which fiber is being visited or how deep it sits in the tree. Make the tree 100 levels deep and the stack depth at any given moment is <em>still</em> that same small fixed number — because getting from level 1 to level 100 happened via 100 iterations of the <code>while</code> loop in <code>workLoopSync</code>, not via 100 nested function calls. This is the entire property Module 07 needs: the cost of "how deep is the tree" has been moved from stack frames (which you can't inspect or pause mid-way) to loop iterations (which you very much can).</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">06</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>If the tree traversal is identical either way, what did we actually gain by rewriting mount() as a loop?</summary>
+    <p>Nothing observable yet — and that's the point of doing it in its own module, verified against the old version, before adding anything new. Module 07 is where the gain becomes real: it adds exactly one thing (a deadline check and an early return) to this loop, and that one addition is only possible because stack depth here never grows with tree depth. Trying to add the same pause to Module 04's recursive `mount()` would require pausing a JS function mid-call, which isn't something JS lets you do.</p>
+  </details>
+
+  <details>
+    <summary>Why does `beginWork` create ALL of a host component's children at once, rather than one at a time?</summary>
+    <p>Because siblings need to be linked to each other (`child.sibling = nextChild`) before the loop can discover them one by one — that linking has to happen somewhere, and doing it all at once, right when their parent is visited, is simpler than spreading it across multiple loop iterations. What `beginWork` does NOT do is descend into any of those children's *own* children — that's deferred to when the loop visits each child in a later iteration. "All immediate children, zero grandchildren" is the exact boundary.</p>
+  </details>
+
+  <details>
+    <summary>Real React keeps `workInProgress` as a variable outside any function. Doesn't that make testing harder — how did you avoid it?</summary>
+    <p>By making `performUnitOfWork` return the next fiber instead of assigning it to a shared variable — see DECISIONS.md. It's a deliberate, documented divergence, not an oversight: real React's module-level variable lets *any* function in its reconciler (there are many, across several files) resume from wherever rendering left off without a value being threaded through every call site. This course doesn't have that many call sites, so an explicit returned value is simpler to read, test, and (in Module 07) hold onto between yields.</p>
+  </details>
+
+  <details>
+    <summary>Could this loop get stuck forever on a malformed tree?</summary>
+    <p>Only if `completeUnitOfWork`'s `do...while` never reaches a fiber with `return === null` — which would mean a cycle exists in the tree (a fiber whose ancestor chain loops back on itself), which nothing in Modules 03-06 can currently construct. `verify.mjs`'s manual trace includes a 20-iteration safety cutoff specifically as a test-code guard, not because the algorithm itself is expected to loop — a real infinite loop there would indicate a bug in tree construction, not an inherent risk of the traversal algorithm.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">06</span><h2>What's Next</h2></div>
+  <p>The loop's stack depth is now constant, independent of tree depth — the one precondition Module 07 needed. Module 07 adds exactly one new idea on top of this exact loop: check a deadline before continuing, and if it's passed, stop and hand control back to the browser (see <a href="../prereqs/prereq_event_loop_yielding.html">P6</a>) — resuming later from precisely the <code>next</code> value this loop already tracks.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_05_double_buffer/tutorial.html">← Module 05: Double Buffering</a>
+  <a class="next" href="../module_07_yielding/tutorial.html">Module 07: Yielding to the Browser →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p>The three-function split (<code>beginWork</code>/<code>completeUnitOfWork</code>/<code>performUnitOfWork</code>) and their control flow were read directly, with line numbers, from real <code>react-dom@18.3.1</code> (<code>react-dom.development.js:26502-26707</code>) in <code>research_reconciliation/react-lab/node_modules/react-dom</code>. The equivalence between this module's explicit loop and Module 04's recursive <code>mount()</code> was confirmed by executing <code>verify.mjs</code> and diffing real traversal output, not asserted.</p>
+</div>
+
+</div>
+</body>
+</html>
