@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 03 · The Fiber Node &amp; Linked-List Tree</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#6B4FA0; --accent-bg:#EFEAF7; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 2: The Fiber Tree</p>
+  <h1>Module 03<em>The Fiber Node &amp; Linked-List Tree</em></h1>
+  <p class="thesis">Elements (Module 01-02) are data about intention, built fresh every render, thrown away immediately. A fiber is different: it's a durable node that <em>persists</em> across renders, and it's held together by exactly three pointers — no array-of-children field anywhere.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p>A fiber tree stores <span class="hi">child, sibling, return</span> per node — <em>first child</em>, <em>next sibling</em>, <em>parent</em> — and nothing else describes its shape. Every child of a node is reached by following <code>child</code> once, then <code>sibling</code> repeatedly. This is real React's actual field layout, not a simplification invented for this course.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_linked_list_tree.html">P2 · Linked-list trees</a>
+    <a href="../prereqs/prereq_reference_equality.html">P1 · Reference equality</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">03</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>Recall Module 01's furniture-shop work orders. A fiber is the shop's actual <em>job ticket</em> — the internal paperwork the shop itself keeps, one per job, stapled together not by a master list of "all jobs for this customer" but by handwritten notes in the corner of each ticket: "next job for the same customer →," and "the job that sent us this one ↑." No ticket has a list. Every ticket only knows its immediate neighbors.</p>
+    <p>You can still find every job for a customer — you just have to start at their first ticket and keep following the "next job" note until it's blank. It's slower to look up than an array would be. But it means the shop can hand you <em>one single ticket</em> and you have everything you need to keep walking, indefinitely, without ever holding "the whole list" in your hands at once. That property — never needing the whole structure in hand — is the entire reason Module 06's loop can pause partway through and pick a single ticket back up later.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">03</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>Building the tree <code>App → [Header, Main → [Text], Footer]</code> with <code>appendChild</code>:</p>
+    <ol>
+      <li><code>appendChild(App, Header)</code> — <code>App.child</code> is <code>null</code>, so <code>Header</code> becomes it directly. <code>Header.return = App</code>, <code>Header.index = 0</code>.</li>
+      <li><code>appendChild(App, Main)</code> — <code>App.child</code> is already <code>Header</code>, so walk <code>Header.sibling</code> (currently <code>null</code>) and attach <code>Main</code> there instead. <code>Main.return = App</code>, <code>Main.index = 1</code>.</li>
+      <li><code>appendChild(App, Footer)</code> — walk to the end of the sibling chain (<code>Header → Main</code>) and attach after <code>Main</code>. <code>Footer.index = 2</code>.</li>
+      <li><code>appendChild(Main, Text)</code> — a <em>different</em> parent. <code>Main.child</code> is <code>null</code>, so <code>Text</code> becomes it directly, with its own independent <code>return</code>/<code>index</code>.</li>
+    </ol>
+    <p>Nowhere in any of this does anything append to an array. Every "child" relationship is one object's field pointing at another object.</p>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">03</span><h2>A Map of the State</h2></div>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>What each fiber's pointers hold</h4>
+      <ol class="stk">
+        <li><span>App</span><span class="note">child→Header, return→null</span></li>
+        <li><span>Header</span><span class="note">sibling→Main, return→App</span></li>
+        <li class="tgt"><span>Main</span><span class="note">child→Text, sibling→Footer</span></li>
+        <li><span>Text</span><span class="note">sibling→null, return→Main</span></li>
+        <li><span>Footer</span><span class="note">sibling→null, return→App</span></li>
+      </ol>
+    </div>
+    <div class="railbox">
+      <h4>Same tree, drawn as a tree</h4>
+      <pre class="tree">App
+├─ Header
+├─ <span class="new">Main</span>
+│  └─ Text ("hi")
+└─ Footer</pre>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p><code>forEachFiber</code>'s real, executed output (see Run It) is <code>App → Header → Main → hi → Footer</code>. Notice it's depth-first: <code>Main</code>'s child <code>Text</code> is visited immediately after <code>Main</code>, <em>before</em> <code>Footer</code> — even though <code>Footer</code> is "closer" to <code>Main</code> in the sibling chain. Parent-before-children, and a whole subtree before its next sibling, always.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">03</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>The fields that matter, verified against real React</h3>
+    <pre><code><span class="c">// fiber.js — see DECISIONS.md for the full real-source citation</span>
+this.return = null;   <span class="c">// parent</span>
+this.child = null;    <span class="c">// first child</span>
+this.sibling = null;  <span class="c">// next sibling</span>
+this.index = 0;       <span class="c">// position among siblings</span></code></pre>
+    <p>These four field names and their meaning are a direct transcription of real <code>react-dom@18.3.1</code>'s internal <code>FiberNode</code> constructor (line-numbered citation in DECISIONS.md). We didn't invent "return" as a parent-pointer name — it's real React's actual name, chosen (per the surrounding source) because a fiber's <code>return</code> pointer is where execution <em>returns to</em> once this fiber's subtree is done, echoing a function call's return address.</p>
+
+    <h3>Traversal: down, across, up — one loop, three rules</h3>
+    <pre><code>export function forEachFiber(root, visit) {
+  let next = root;
+  while (next !== null) {
+    visit(next);
+    if (next.child !== null) { next = next.child; continue; }
+    let node = next;
+    while (node !== null && node.sibling === null) node = node.return;
+    next = node === null ? null : node.sibling;
+  }
+}</code></pre>
+    <p>Three rules, checked in order, every iteration: <strong>go down</strong> if there's a child; otherwise <strong>go up</strong> until you find an ancestor with an unvisited sibling, then <strong>go across</strong> to it. This is exactly <a href="../prereqs/prereq_explicit_loop_vs_recursion.html">P3</a>'s explicit-loop pattern, now over the real fiber shape instead of a toy tree.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">03</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Build a fiber tree <em>from</em> an element tree automatically — this module's tree was wired by hand, with explicit <code>appendChild</code> calls. That's Module 04.</li>
+        <li>Update anything — there's only one tree; nothing here represents "last render" vs. "this render" (that's <code>alternate</code>, deliberately left <code>null</code>, reserved for Module 05).</li>
+        <li>Pause the traversal — <code>forEachFiber</code> runs straight through to completion. Module 06/07 make the loop interruptible.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Represent any tree shape using only <code>child</code>/<code>sibling</code>/<code>return</code>/<code>index</code>.</li>
+        <li>Correctly enumerate an entire tree, depth-first, parent-before-children, using an explicit loop instead of recursion.</li>
+        <li>Point to the exact real-React source lines every field name and its purpose came from.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">03</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output</span>
+    <pre><code><span class="g">Traversal order: App → Header → Main → hi → Footer
+Expected order:  App → Header → Main → hi → Footer
+Matches expected depth-first, parent-before-children order: true
+
+--- Structural checks ---
+Header.return === App: true
+...
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result?</span>
+    <p>If the traversal order looks alphabetically sorted or breadth-first instead of matching the expected output, check that you haven't swapped <code>child</code> and <code>sibling</code> assignments in a custom <code>appendChild</code> call — this is the single most common transcription slip when re-typing this file by hand instead of running it as-is.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">03</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: suppose <code>Main</code> had <em>two</em> children, <code>Text1</code> and <code>Text2</code>, instead of one. Which single field, on which single fiber, has to change for <code>forEachFiber</code> to discover both without any change to <code>forEachFiber</code> itself?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>Only <code>Text1.sibling</code> needs to become <code>Text2</code> (and <code>Main.child</code> still points at <code>Text1</code>, unchanged). <code>forEachFiber</code> never asked "how many children does this node have" — it only ever asks "does this node have a <code>child</code>" and "does this node have a <code>sibling</code>," both yes/no questions answerable from a single node in isolation. That's the payoff of P2's design: the traversal function's code doesn't scale with fan-out at all.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">03</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Why not just store an array of children — wouldn't that be simpler to read?</summary>
+    <p>To read, arguably yes. But Module 06's work loop needs to be able to <em>pause</em> mid-traversal and resume later from a single saved reference. With an array-of-children shape, "where was I" requires remembering which array, which index into it, <em>and</em> a stack of outer arrays/indices you were nested inside — effectively reinventing the call stack as data. With <code>return</code>/<code>child</code>/<code>sibling</code>, "where was I" is just one fiber reference; <code>return</code> already encodes the entire path back to the root.</p>
+  </details>
+
+  <details>
+    <summary>What's the difference between a fiber and an element, concretely?</summary>
+    <p>An element (Module 01) is thrown away and rebuilt from scratch every single render — it's ephemeral by design. A fiber persists across renders; the same fiber object is reused and mutated (its <code>pendingProps</code> updated) when possible, which is precisely what lets Module 10's bailout logic compare "new props" against "props from last time" — there has to be a "last time" object still around to compare against, and elements don't provide one.</p>
+  </details>
+
+  <details>
+    <summary>Real React's fiber has ~25 fields. Is dropping 16 of them going to bite me later in this course?</summary>
+    <p>No — every dropped field is either DEV-only profiling instrumentation (zero reconciliation behavior) or belongs to a mechanism this course handles differently by design (hooks state, in Module 13, uses its own simplified per-fiber storage rather than wiring into real React's exact <code>memoizedState</code>/<code>updateQueue</code> hook-list format). Each is named explicitly in DECISIONS.md so you know it was a decision, not an oversight.</p>
+  </details>
+
+  <details>
+    <summary>Is <code>index</code> just "which position in <code>props.children</code>'s array"?</summary>
+    <p>For now, effectively yes — but hold that thought for Module 09. Once elements can be reordered between renders (a keyed list where item 3 moves to position 1), a fiber's <code>index</code> becomes the thing that tells the diff algorithm "did this item move?" — comparing where a fiber's key was last render against where it is this render. It stays interesting precisely because it's not just "array position," it's "last known array position," which can now disagree with the incoming data.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">03</span><h2>What's Next</h2></div>
+  <p>You built and hand-wired a fiber tree. Real trees aren't hand-wired — they're derived from an element tree, automatically, the first time a component renders. Module 04 writes <code>createFiberFromElement</code> and a mount pass that walks an element tree (from Module 01/02) and produces exactly the kind of fiber tree you built by hand here — no more manual <code>appendChild</code> calls.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_02_jsx_desugar/tutorial.html">← Module 02: JSX Desugaring by Hand</a>
+  <a class="next" href="../module_04_mount/tutorial.html">Module 04: Mount — Element Tree to Fiber Tree →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p>Fiber field names, their initial values, and the WorkTag constants (<code>FunctionComponent = 0</code>, <code>HostRoot = 3</code>, <code>HostComponent = 5</code>, <code>HostText = 6</code>) were read directly, with line numbers, from real <code>react-dom@18.3.1</code>'s <code>react-dom.development.js</code> (functions <code>FiberNode</code>, lines 28073-28098; WorkTag constants, lines 90-100) in <code>research_reconciliation/react-lab/node_modules/react-dom</code> — not asserted from memory or from React's public documentation. Traversal correctness was verified by executing <code>verify.mjs</code>.</p>
+</div>
+
+</div>
+</body>
+</html>
