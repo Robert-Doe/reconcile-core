@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 05 · Double Buffering</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#A03A5B; --accent-bg:#F8E9EF; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 2: The Fiber Tree</p>
+  <h1>Module 05<em>Double Buffering</em></h1>
+  <p class="thesis">Module 03 reserved a field called <code>alternate</code> and never used it. This module is where it finally does something — and where "an update never shows you a half-finished tree" stops being a promise and becomes a mechanical consequence of there only ever being two objects.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p>At any tree position, there are <span class="hi">at most two fiber objects, forever</span> — <code>current</code> (on screen now) and <code>workInProgress</code> (being built). A new render reuses <code>current.alternate</code> if it exists instead of allocating a third. "Committing" is flipping one pointer to say which of the two is real.</p>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">05</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>A photo studio has exactly two prints of the current portrait on the wall stand — never one, never three. When a new sitting happens, the retoucher doesn't buy a fresh sheet of photo paper; they pull the <em>other</em> print off a shelf behind the stand (the one that was on display two sittings ago) and work on that one. When it's ready, they swap which print is on the stand and which is on the shelf. The one now on the shelf is not thrown away — it's exactly what gets pulled out and reused next time.</p>
+    <p>A visitor looking at the wall never sees a half-retouched print. They either see the old one, or — after one single swap — the new one. There is no moment where the stand holds something half-finished, because the retoucher never touches the print that's currently on display.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">05</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>Four renders of the same component in a row:</p>
+    <ol>
+      <li><strong>Render 1 (mount):</strong> Fiber <code>A</code> is created. <code>A.alternate</code> is <code>null</code> — there's no second buffer yet, because there's been no update yet.</li>
+      <li><strong>Render 2:</strong> <code>createWorkInProgress(A, newProps)</code> is called. <code>A.alternate</code> is <code>null</code>, so a genuinely new fiber <code>B</code> is created. <code>B.alternate = A</code> and <code>A.alternate = B</code> — set once, in both directions.</li>
+      <li>Commit: the container's <code>.current</code> pointer flips from <code>A</code> to <code>B</code>. One assignment. <code>B</code> is now "current."</li>
+      <li><strong>Render 3:</strong> <code>createWorkInProgress(B, newerProps)</code> is called. <code>B.alternate</code> is <code>A</code> — not null — so <code>A</code> is <strong>reused</strong>, just given new <code>pendingProps</code>. No third object is ever created.</li>
+      <li>Commit: <code>.current</code> flips back to <code>A</code>.</li>
+      <li><strong>Render 4:</strong> <code>createWorkInProgress(A, ...)</code> finds <code>A.alternate === B</code>, reuses <code>B</code>. The cycle repeats, forever, between exactly these two objects.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">05</span><h2>A Map of the State</h2></div>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>After render 2 — two objects, linked</h4>
+      <ol class="stk">
+        <li class="tgt"><span>A</span><span class="note">current — alternate→B</span></li>
+        <li class="tpl"><span>B</span><span class="note">workInProgress — alternate→A</span></li>
+      </ol>
+    </div>
+    <div class="railbox">
+      <h4>After the commit (one pointer flip)</h4>
+      <ol class="stk">
+        <li class="tpl"><span>B</span><span class="note">now current — alternate→A</span></li>
+        <li><span>A</span><span class="note">now the free buffer — alternate→B</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p><code>verify.mjs</code>'s real output: <code>wip3 === current1</code> is <code>true</code>. That's not "an object with the same data as" — it's <code>===</code>, the exact same reference (see <a href="../prereqs/prereq_reference_equality.html">P1</a>). Three renders in, and we're back to literally the first fiber object ever allocated for this position.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">05</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>Pool-or-create, verified against real React's actual function</h3>
+    <pre><code>export function createWorkInProgress(current, pendingProps) {
+  let workInProgress = current.alternate;
+
+  if (workInProgress === null) {
+    workInProgress = createFiber(current.tag, current.key, pendingProps);
+    workInProgress.alternate = current;
+    current.alternate = workInProgress;      <span class="c">// ← linked ONCE, ever</span>
+  } else {
+    workInProgress.pendingProps = pendingProps;
+    workInProgress.flags = 0;
+  }
+  <span class="c">// ...copy tree-shape fields from current, either way...</span>
+  return workInProgress;
+}</code></pre>
+    <p>Verified structurally against real <code>react-dom.development.js:28183-28256</code>: same branch, same "link both ways exactly once" behavior, same reuse-and-overwrite behavior on the pool-hit path.</p>
+
+    <h3>The swap is one line</h3>
+    <pre><code>container.current = wip2;   <span class="c">// that's the whole commit, from this module's view</span></code></pre>
+    <p>Nothing about this line is partial. Before it runs, every reader of <code>container.current</code> sees the fully-built old tree. After it runs, every reader sees the fully-built new tree. There is no third state.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">05</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Actually decide <em>what</em> changed between the two trees — this module only manages object identity/pooling, not diffing (Module 08/09).</li>
+        <li>Apply the swap to a whole tree automatically — this module demonstrates the mechanism at one fiber position; a real render walks every position and calls this per node (Module 06's job).</li>
+        <li>Touch the real DOM — <code>container.current</code> flipping doesn't paint anything by itself (Module 12).</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Explain, with object-identity proof rather than a metaphor, why exactly two fiber objects ever exist per tree position.</li>
+        <li>Explain why "current" is never mutated mid-render — only "workInProgress" is, until the swap.</li>
+        <li>Predict which of two specific objects a given <code>createWorkInProgress</code> call will return, for any render number.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">05</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">wip3 === current1 (pool reuse, NOT a 3rd object): true
+wip4 === wip2 (back to the other pooled object): true
+
+Total distinct fiber objects used across 4 renders: 2
+
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout crazy">
+    <span class="ct">Crazy detail — this course's own test caught itself making the exact mistake this module is about</span>
+    <p>The first draft of <code>verify.mjs</code> failed. Not because <code>doubleBuffer.js</code> was wrong — because the assertion re-read <code>current1.alternate === null</code> at the very end of the script, by which point <code>current1.alternate</code> had long since been reassigned to <code>wip2</code>. <code>current1</code> is a live, mutable object; asking it a question after the story has moved on gets you the current answer, not the answer from when you first cared. The fix: capture each boolean into a <code>const</code> the moment it's actually true, and assert on the frozen value. It's hard to find a cleaner, more literal illustration of why real React never mutates the <em>current</em> object mid-render — only <em>workInProgress</em> — than watching this course's own verification script fall into that exact hole and climb back out.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">05</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: if a render is started (a <code>workInProgress</code> tree begins being built) but is <strong>abandoned</strong> before committing — say, a newer, higher-priority update interrupts it — what has to be true about <code>current</code> at that moment for the abandonment to be "free" (no cleanup required)?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p><code>current</code> must be completely untouched — every field on every <code>current</code> fiber has to still describe exactly what's on screen, because nothing about the abandoned render was ever allowed to write into it. All of the half-finished work lives entirely on the <code>workInProgress</code> side, which nobody but the renderer itself was ever looking at. Abandoning it is as simple as never calling the one line that swaps <code>container.current</code> — the "on-screen" tree was never at risk, because it was never the tree being mutated. This is the real reason interruptible rendering (Module 07, Track 2's A3) is safe to build at all: the thing that would need "undoing" if you stopped halfway was never visible to begin with.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">05</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Why not just deep-clone the tree each render instead of this pooling scheme?</summary>
+    <p>Two reasons visible from this module alone: allocation cost (cloning N nodes every render vs. reusing N already-allocated nodes forever), and — more importantly for this course — it would break the "current is never mutated" guarantee only if the clone were shallow; a deep clone actually gets you the same safety property, just at a higher constant cost per render. Real React chose pooling specifically to keep that cost bounded at exactly 2× the tree size, permanently, rather than paying an allocation proportional to tree size on every single render.</p>
+  </details>
+
+  <details>
+    <summary>Is `alternate` symmetric — does `A.alternate.alternate` always equal `A`?</summary>
+    <p>Yes, and `verify.mjs` shows it implicitly: `wip2.alternate === current1` and `current1.alternate === wip2` are both asserted true right after the link is made, and neither link is ever changed afterward (only pendingProps and tree-shape fields on the fibers are). Once two fibers are paired, they stay paired for the rest of the program.</p>
+  </details>
+
+  <details>
+    <summary>Does the container's `.current` swap need to happen "atomically" in some special JS sense — a lock, a transaction?</summary>
+    <p>No — JavaScript's single-threaded execution model already guarantees a single property assignment can't be observed half-done by any other code, because no other code can run in the middle of one synchronous statement. "Atomic" here just means "one assignment, not several," which is sufficient given that guarantee. This is a case where a mechanism that would need real synchronization primitives in a multi-threaded language is free in JS.</p>
+  </details>
+
+  <details>
+    <summary>What happens to the OLD current tree's fibers after a swap — are they garbage collected?</summary>
+    <p>Not immediately, and not in this course's simplified model either: the old current becomes the new workInProgress-in-waiting, reachable via the new current's `.alternate`. It stays alive, on purpose, specifically so it's available to be reused on the very next render — which is exactly what `wip3 === current1` demonstrates.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">05</span><h2>What's Next</h2></div>
+  <p>You've proven the two-buffer mechanism works for one fiber position. Real rendering has to do this for an entire tree, one node at a time, without recursion — and be able to stop partway through. Module 06 builds that: the actual work loop, walking a tree with an explicit "next unit of work" pointer instead of function calls, setting up everything Module 07 needs to make it pausable.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_04_mount/tutorial.html">← Module 04: Mount — Element Tree to Fiber Tree</a>
+  <a class="next" href="../module_06_work_loop/tutorial.html">Module 06: The Unit-of-Work Loop →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p><code>createWorkInProgress</code>'s pool-or-create structure, the both-directions-once linking, and the copied-fields-on-reuse behavior were read directly from real <code>react-dom@18.3.1</code> (<code>react-dom.development.js:28183-28256</code>) in <code>research_reconciliation/react-lab/node_modules/react-dom</code>, and confirmed by executing <code>verify.mjs</code> against our own implementation — including a genuine bug this module's own first verification draft hit and fixed, documented in DECISIONS.md.</p>
+</div>
+
+</div>
+</body>
+</html>
