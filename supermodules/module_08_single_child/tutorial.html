@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 08 · The Single-Child Fast Path</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#4A5A9E; --accent-bg:#ECEEF7; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 4: Reconciliation Proper</p>
+  <h1>Module 08<em>The Single-Child Fast Path</em></h1>
+  <p class="thesis">Every module so far has only ever mounted from nothing. This is the first module where there's a "last time" to compare against — and the first real reconciliation decision: reuse the old fiber, or throw it away?</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p>Same key <em>and</em> same type → <span class="hi">reuse the fiber</span> (via Module 05's double buffering) and just give it new props. Anything else → delete the old one, build fresh. The decision is made once, per position, before anything else happens.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_reference_equality.html">P1 · Reference equality</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">08</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>A hotel room between guests. Housekeeping's decision isn't "burn the room down and rebuild it" every checkout — it's "is the next guest's booking compatible with what's already installed?" A returning guest with the same room type gets the same physical room, freshly made up: same bed frame, same furniture, new sheets. A guest who booked a fundamentally different room type (a suite instead of a single) doesn't get the old room adapted — that room gets marked for a totally different renovation, and the guest gets an entirely different physical room.</p>
+    <p>The bed frame (the fiber object) either survives, refreshed, or it doesn't. There's no in-between where half the frame is old and half is new — the decision is made once, at check-in, before any sheets are changed.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">08</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p><code>reconcileSingleChild(parent, oldChild, newElement)</code>:</p>
+    <ol>
+      <li>Compare <code>oldChild.key</code> to <code>newElement.key</code>. Different → this specific old child is marked for deletion; if there's a next sibling, check IT next (a later sibling might still match).</li>
+      <li>Keys match → compare <code>oldChild.type</code> to <code>newElement.type</code>.</li>
+      <li><strong>Types match:</strong> mark any of <code>oldChild</code>'s remaining siblings for deletion (a single-child slot keeps exactly one survivor), then clone <code>oldChild</code> via <code>createWorkInProgress</code> with the new props, reset <code>index</code>/<code>sibling</code>, return it.</li>
+      <li><strong>Types don't match:</strong> mark <code>oldChild</code> <em>and</em> all its remaining siblings for deletion, stop searching, fall through to step 5.</li>
+      <li>No match survived the search (or none existed): create a brand new fiber for <code>newElement</code>, unconnected to anything from before.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">08</span><h2>A Map of the State</h2></div>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>Same type — REUSE</h4>
+      <pre class="tree">old: div.className="old"
+new: &lt;div className="new"/&gt;
+
+result.alternate === oldChild   <span class="new">true</span>
+result.pendingProps.className   "new"
+oldChild.memoizedProps.className "old"  ← untouched
+parent.deletions                null</pre>
+    </div>
+    <div class="railbox">
+      <h4>Different type — REPLACE</h4>
+      <pre class="tree">old: div (no props)
+new: &lt;span className="new"/&gt;
+
+result.type                     "span"
+result.alternate                 null   ← brand new
+parent.deletions                <span class="new">[oldChild]</span></pre>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p>In the REUSE case, <code>oldChild.memoizedProps.className</code> is still <code>"old"</code> after the call — the fiber that's now "current" (from the last completed render) is completely untouched. Only the <em>new</em>, pooled object (<code>result</code>, <code>oldChild.alternate</code>) got the new props. This is Module 05's guarantee, still holding, one module later.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">08</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>The decision, verified against real React's actual function</h3>
+    <pre><code>if (child.key === key) {
+  const sameType = isText ? child.tag === HostText : child.type === newType;
+  if (sameType) {
+    deleteRemainingChildren(returnFiber, child.sibling);
+    const existing = useFiber(child, props);   <span class="c">// ← Module 05's createWorkInProgress</span>
+    existing.return = returnFiber;
+    return existing;
+  }
+  deleteRemainingChildren(returnFiber, child);  <span class="c">// key matched, type didn't: all of it goes</span>
+  break;
+} else {
+  deleteChild(returnFiber, child);              <span class="c">// wrong key: just this one, keep looking</span>
+  child = child.sibling;
+}</code></pre>
+    <p>Verified against real <code>reconcileSingleElement</code> (line-cited in DECISIONS.md) — same branch structure, same which-deletion-call-gets-which-argument logic.</p>
+
+    <h3><code>useFiber</code> is Module 05, plus two resets</h3>
+    <pre><code>function useFiber(fiber, pendingProps) {
+  const clone = createWorkInProgress(fiber, pendingProps);   <span class="c">// Module 05, unmodified</span>
+  clone.index = 0;
+  clone.sibling = null;
+  return clone;
+}</code></pre>
+    <p>Real React's own source comment, quoted directly: <em>"We currently set sibling to null and index to 0 here because it is easy to forget to do before returning it."</em> A reused fiber must not carry forward tree-shape data from a context where it might have had different siblings.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">08</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Reconcile a whole <em>array</em> of children against a whole old array — this module only handles one position (Module 09's job).</li>
+        <li>Actually remove anything from the DOM — <code>deletions</code> is a list of intentions, not an action.</li>
+        <li>Decide "skip this subtree entirely" based on props being unchanged — that's Module 10's bailout, a step beyond just "reuse the fiber."</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Correctly decide reuse-vs-replace for one child position, matching real React's actual algorithm.</li>
+        <li>Explain exactly why keys are checked before types, and why a type change discards the ENTIRE remaining old sibling chain, not just the mismatched fiber.</li>
+        <li>Predict, for any before/after pair, whether a fiber survives an update or gets replaced.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">08</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">Scenario 1: PASS
+Scenario 2: PASS
+Scenario 3: PASS
+
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout crazy">
+    <span class="ct">Crazy detail — a real TypeError this module's own construction produced</span>
+    <p>The very first run of this module's <code>verify.mjs</code> crashed with <code>TypeError: Cannot read properties of undefined (reading 'push')</code>. Not a bug in this module's logic — Module 03's <code>fiber.js</code> had never initialized a <code>deletions</code> field on new fibers, so it was <code>undefined</code>, not <code>null</code>, and <code>undefined === null</code> is <code>false</code>, so the "does a deletions array already exist?" check silently failed to create one before the first push. The fix was made at the actual source — Module 03's constructor — not patched around here, and every earlier module's tests were re-run afterward to confirm nothing else broke. See <a href="../module_03_fiber_node/DECISIONS.md">Module 03's DECISIONS.md</a> for the corrected field list.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">08</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: an old child has <code>key="row-1"</code>, type <code>'div'</code>. A new element arrives with <code>key="row-1"</code>, type <code>'span'</code>. Is the old fiber's <em>props</em> relevant to this decision at all?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>No — not even slightly. The type mismatch alone is fully decisive; <code>reconcileSingleChild</code> never inspects <code>child.pendingProps</code> or <code>child.memoizedProps</code> when comparing key and type. Two elements can have wildly different props and still reuse the same fiber (Scenario 1 changes <code>className</code> from "old" to "new" and still reuses); two elements can have <em>identical</em> props and still get a brand-new fiber, if their types differ. This is worth sitting with: "did the props change?" is an entirely separate question from "should this fiber survive?", and this module only ever answers the second one.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">08</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Why check key before type? Wouldn't checking type first catch more "obviously the same" cases?</summary>
+    <p>Because key is the author's explicit statement of identity — "this is logically the same item as last time," independent of what it renders as — while type is more like an implementation detail of that item. A key mismatch means "this is a conceptually different thing," full stop, regardless of whether the types happen to coincidentally match. Checking type first would risk reusing a fiber for a genuinely different logical item just because it happened to render the same tag — exactly the kind of bug keys exist to prevent (foreshadowing Module 09).</p>
+  </details>
+
+  <details>
+    <summary>What does "single-child" mean here — does this only apply to components with exactly one child in their JSX?</summary>
+    <p>It means this specific function is only reconciling ONE position (a component's single returned element, or one array slot in isolation) against ONE old fiber. Module 09 is where an entire array of children gets reconciled against an entire array of old children, using a related but more elaborate algorithm — this module is the piece Module 09 builds on, not a separate case for "components that happen to return only one thing."</p>
+  </details>
+
+  <details>
+    <summary>If the type matches but I don't reset `index`/`sibling`, what actually breaks — concretely?</summary>
+    <p>Say the reused fiber previously had a sibling from a time it wasn't the only child. If `sibling` isn't reset to `null`, `forEachFiber` (Module 03) would walk into that stale sibling — a fiber that no longer has any relationship to this render at all — producing a corrupted traversal that visits nodes that aren't really part of the current tree. Resetting is what keeps "this fiber's own history" from leaking into "this fiber's current tree-shape."</p>
+  </details>
+
+  <details>
+    <summary>Does `deleteChild`/`deleteRemainingChildren` free any memory or detach anything right now?</summary>
+    <p>No — they only push a reference onto `returnFiber.deletions`. The fiber being "deleted" still exists, still has all its fields, and is still reachable via that array. Nothing about the actual tree structure or the real DOM changes until Module 11 turns this list into real removal work during the commit phase.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">08</span><h2>What's Next</h2></div>
+  <p>You can now reconcile one position. Real UIs have lists — and lists can reorder, not just update in place. Module 09 is the big one: the actual two-pass, key-indexed algorithm that reconciles an entire array of children, reusing and <em>moving</em> fibers instead of destroying and recreating them, and proving exactly why keys are mechanically required for it to work at all.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_07_yielding/tutorial.html">← Module 07: Yielding to the Browser</a>
+  <a class="next" href="../module_09_keyed_diff/tutorial.html">Module 09: Keyed List Diffing →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p><code>reconcileSingleElement</code>, <code>useFiber</code>, <code>deleteChild</code>, and <code>deleteRemainingChildren</code> were read directly, with line numbers, from real <code>react-dom@18.3.1</code> (<code>react-dom.development.js:13151-13212</code>, <code>13925-13992</code>) in <code>research_reconciliation/react-lab/node_modules/react-dom</code>. The missing-`deletions`-field bug was a real crash produced by running this module's own <code>verify.mjs</code>, fixed at its source in Module 03, and confirmed not to regress any of Modules 03-07 by re-running their tests.</p>
+</div>
+
+</div>
+</body>
+</html>
