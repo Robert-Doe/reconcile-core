@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 11 · The Effect List</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#7A3E7A; --accent-bg:#F3E9F3; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 5: Committing to Reality</p>
+  <h1>Module 11<em>The Effect List</em></h1>
+  <p class="thesis">If you've read about React's internals anywhere, you've probably read about "the effect list" — a linked list of every fiber with work to do, built during rendering. Grep the actual, installed React source in this repo for it, and you'll find nothing. This module builds what's really there instead.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p>There is no separate list. Every fiber bubbles a <span class="hi">subtreeFlags bitmask</span> up to its parent as rendering completes — "does anything inside me need committing?" — and commit re-walks the <em>same tree</em>, skipping any branch whose bit says no.</p>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">11</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>An apartment building's fire inspector doesn't carry a separate clipboard listing every unit with a problem, compiled floor by floor as they go. Instead, each floor's supervisor reports one bit of information up to the building manager: "is there ANYTHING on my floor that needs attention — yes or no." The building manager, holding just those yes/no bits per floor, does a second walkthrough — and skips every floor whose supervisor said no, entirely, never opening a single door on that floor.</p>
+    <p>The information that mattered was never "here's the list" — it was "here's whether it's worth looking here at all," reported once per floor, bubbled up from whoever actually checked each unit.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">11</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>Given a tree where exactly one deeply-nested fiber (<code>leafC1a</code>) has <code>flags |= Placement</code>, everything else untouched:</p>
+    <ol>
+      <li>As each fiber COMPLETES (bottom-up — Module 06's <code>completeUnitOfWork</code> position), <code>bubbleProperties</code> runs: OR every immediate child's <code>subtreeFlags | flags</code> into this fiber's own <code>subtreeFlags</code>.</li>
+      <li><code>leafC1a</code> itself has no children, so its <code>subtreeFlags</code> stays <code>NoFlags</code> — but its OWN <code>flags</code> has <code>Placement</code> set directly.</li>
+      <li><code>leafC1</code> (its parent) bubbles: sees <code>leafC1a.subtreeFlags | leafC1a.flags</code> includes <code>Placement</code> → <code>leafC1.subtreeFlags</code> now has it too.</li>
+      <li><code>branchC</code> bubbles the same way from <code>leafC1</code> → also picks up the bit.</li>
+      <li><code>branchA</code> and <code>branchB</code>, whose entire subtrees never changed, bubble up <code>NoFlags</code> — nothing to report.</li>
+      <li><code>root</code> bubbles from all three branches → ends up with <code>Placement</code> set, because AT LEAST ONE child (<code>branchC</code>) had it.</li>
+      <li>A second walk, <code>collectEffects</code>, starts at <code>root</code>. At every fiber, it checks: is <code>subtreeFlags === NoFlags</code>? If so — <strong>stop, don't descend</strong>. <code>branchA</code> and <code>branchB</code>'s entire subtrees are skipped this way, never visited.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">11</span><h2>A Map of the State</h2></div>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>The tree (8 fibers, 1 real change)</h4>
+      <pre class="tree">root
+├─ branchA
+│  └─ leafA1
+├─ branchB
+│  └─ leafB1
+└─ branchC
+   └─ leafC1
+      └─ <span class="new">leafC1a  ← Placement</span></pre>
+    </div>
+    <div class="railbox">
+      <h4>subtreeFlags after bubbling</h4>
+      <pre class="tree">root      : Placement ✓
+branchA   : NoFlags   <span class="caret">← skipped entirely</span>
+branchB   : NoFlags   <span class="caret">← skipped entirely</span>
+branchC   : Placement ✓
+leafC1    : Placement ✓
+leafC1a   : NoFlags (but OWN flags = Placement)</pre>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p><code>verify.mjs</code>'s real, executed numbers: <strong>8 total fibers, 6 visited</strong> by <code>collectEffects</code>. Not "6 relevant fibers found by filtering 8" — 6 <em>visited</em>. <code>leafA1</code> and <code>leafB1</code> were never entered. The pruning is load-bearing, not cosmetic.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">11</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3><code>bubbleProperties</code> — one level, bottom-up, verified against real React</h3>
+    <pre><code>export function bubbleProperties(completedWork) {
+  const didBailout = completedWork.alternate !== null
+    &amp;&amp; completedWork.alternate.child === completedWork.child;   <span class="c">// ← Module 10's exact signature</span>
+
+  if (didBailout) {
+    completedWork.subtreeFlags = completedWork.alternate.subtreeFlags;  <span class="c">// copy, don't recompute</span>
+    return;
+  }
+
+  let subtreeFlags = NoFlags;
+  let child = completedWork.child;
+  while (child !== null) {
+    subtreeFlags |= child.subtreeFlags;
+    subtreeFlags |= child.flags;
+    child = child.sibling;
+  }
+  completedWork.subtreeFlags |= subtreeFlags;
+}</code></pre>
+    <p>Verified byte-for-byte against real <code>bubbleProperties</code> (line-cited in DECISIONS.md) — including the bailout short-circuit, which directly reuses Module 10's exact "did this fiber bail out" evidence.</p>
+
+    <h3><code>collectEffects</code> — the pruned second walk</h3>
+    <pre><code>function walk(fiber) {
+  visitCount.value++;
+  if (fiber.flags !== NoFlags) effects.push(fiber);
+  if (fiber.subtreeFlags === NoFlags) return;   <span class="c">// ← the entire branch stops here</span>
+  let child = fiber.child;
+  while (child !== null) { walk(child); child = child.sibling; }
+}</code></pre>
+    <p>Verified against real React's actual commit-phase walk condition (line-cited in DECISIONS.md): descend only if <code>subtreeFlags</code> says there's something inside worth finding.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">11</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Actually DO anything with a collected effect — <code>collectEffects</code> only finds fibers with work; Module 12 is where <code>appendChild</code> etc. finally get called.</li>
+        <li>Distinguish effect PHASES (before-mutation / mutation / layout) — real React runs three separate pruned walks for these; this course's <code>collectEffects</code> is deliberately unified into one, since Module 12 doesn't need the phase split.</li>
+        <li>Handle deletions in this same pass — <code>deletions</code> (Module 08) is consumed separately in Module 12, not folded into <code>collectEffects</code>'s output here.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Explain, correctly, that "the effect list" is bitmask-bubbling plus a pruned tree re-walk in current React — not a separate linked list, which is a real, common misconception from older material.</li>
+        <li>Predict exactly which fibers a commit-phase walk would visit versus skip, for any tree and any set of changed fibers.</li>
+        <li>Explain precisely how Module 10's bailout evidence feeds directly into this module's pruning — the same check, reused.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">11</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">Total fibers in the tree: 8
+Fibers actually visited by collectEffects: 6
+collectEffects visited FEWER fibers than exist (branchA/branchB subtrees were skipped): PASS
+...
+bailed-out fiber COPIES subtreeFlags from its alternate, does not recompute: PASS
+
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result?</span>
+    <p>If <code>visitCount.value</code> equals <code>totalFibers</code> (no pruning happened), check that <code>walk</code>'s early <code>return</code> is placed BEFORE the loop over children, not after — an early return placed after already looping through children defeats the entire purpose, since the descent already happened by the time you'd "skip."</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">11</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: if a SINGLE leaf fiber at the very bottom of a very deep, otherwise-unchanged tree gets a <code>Placement</code> flag, how many fibers end up with a non-<code>NoFlags</code> <code>subtreeFlags</code> after bubbling — one, or more than one?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>Every fiber on the direct path from that leaf up to the root — not just one. Bubbling is cumulative going up: the leaf's parent picks up the bit from the leaf, the grandparent picks it up from the parent, and so on, all the way to the root. A single change at depth 10 means 10 fibers (the leaf plus its 9 ancestors) all end up with a non-zero <code>subtreeFlags</code>, even though only the leaf itself has a non-zero <code>flags</code>. This is exactly why <code>collectEffects</code>'s pruning check has to be <code>subtreeFlags === NoFlags</code>, not <code>flags === NoFlags</code> — the ancestors of a real change must NOT be pruned, even though they didn't change themselves, because something inside them did.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">11</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>So did "the effect list" ever really exist, or is that just internet folklore?</summary>
+    <p>It really existed — React 16 and 17's actual reconciler maintained a genuine `firstEffect`/`nextEffect`(-as-a-field)/`lastEffect` linked list, built incrementally during the complete phase. It was removed in favor of the `subtreeFlags`-bubbling approach this module builds, as part of React 18's broader internal rework. Older blog posts, conference talks, and even some still-circulating diagrams describe the old mechanism accurately for the React version they were written about — they're not wrong, they're describing a different (earlier) React.</p>
+  </details>
+
+  <details>
+    <summary>Why bother bubbling flags at all — why not just walk the whole tree every commit and check each fiber's own `flags`?</summary>
+    <p>Because that walk would visit every fiber regardless, defeating the entire performance point. `verify.mjs`'s numbers make the payoff concrete: with bubbling, 2 of 8 fibers are skipped entirely; in a real app with thousands of DOM nodes and a small, localized update, the fraction skipped is far larger. The bubbled bit is cheap to compute (one pass, already required by the render phase) and expensive to skip checking (a commit-phase walk over a huge, mostly-unchanged tree).</p>
+  </details>
+
+  <details>
+    <summary>Does a bailed-out fiber ever need re-bubbling later, if nothing about it changes?</summary>
+    <p>Not until something downstream of it actually changes again — at which point THAT fiber's own bailout check would fail (its child pointer would differ from its alternate's), and bubbling would run for real, all the way back up through every ancestor on the path, including this one. The copy-forward behavior is only valid for exactly as long as the "nothing changed" evidence holds.</p>
+  </details>
+
+  <details>
+    <summary>Is `subtreeFlags` the same bit values as `flags`, just on a different field?</summary>
+    <p>Same universe of bit values (`Placement = 2`, `Update = 4`, etc. — real, shared constants), different meaning: a fiber's own `flags` means "something about THIS fiber needs committing"; its `subtreeFlags` means "something SOMEWHERE inside my children needs committing." A fiber can have `flags = NoFlags` (nothing wrong with it directly) and `subtreeFlags = Placement` (something below it needs placing) at the same time — exactly `leafC1`'s and `branchC`'s situation in this module's example.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">11</span><h2>What's Next</h2></div>
+  <p>Every module up to this point has recorded intentions — flags, deletions, a pruned list of fibers that matter. None of it has touched a real DOM node. Module 12 is where that finally happens: replaying <code>collectEffects</code>'s output as actual <code>appendChild</code>/<code>insertBefore</code>/<code>removeChild</code> calls, in a real browser, with a real screenshot to prove it.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_10_bailouts/tutorial.html">← Module 10: Bailouts &amp; Memoization</a>
+  <a class="next" href="../module_12_commit/tutorial.html">Module 12: The Commit — Real DOM Calls →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p>The absence of a literal effect linked list was confirmed by directly grepping real <code>react-dom@18.3.1</code>'s source in <code>research_reconciliation/react-lab/node_modules/react-dom</code> for <code>firstEffect</code>/<code>lastEffect</code> (no matches). <code>bubbleProperties</code> and the commit-phase pruned walk were read directly, with line numbers, from the same file (<code>react-dom.development.js:21923-21970</code>, <code>22990-23003</code>). The 8-fiber, 6-visited pruning proof and the bailout-copies-not-recomputes proof were both produced by executing <code>verify.mjs</code>, not asserted.</p>
+</div>
+
+</div>
+</body>
+</html>
