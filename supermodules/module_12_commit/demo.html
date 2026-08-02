@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Module 12 — live demo, real browser DOM</title>
+<style>
+  body{font-family:ui-monospace,monospace;background:#14201A;color:#E4EDE6;padding:32px;line-height:1.6}
+  #container{background:#fff;color:#111;padding:16px;border-radius:4px;max-width:400px}
+  .card{border:2px solid #2A3E9B;padding:12px;border-radius:4px}
+  button{font-family:inherit;font-size:14px;padding:8px 14px;margin-top:16px;cursor:pointer}
+  #log{margin-top:16px;white-space:pre-wrap;font-size:13px;color:#B9DFA3}
+</style>
+</head>
+<body>
+<h1>Module 12 — committing to a REAL browser DOM</h1>
+<p>This page runs the actual engine (Module 01 → Module 12), in your real browser, against your real DOM. No fake DOM shim — this is the genuine <code>document</code>.</p>
+
+<div id="container"></div>
+<button id="updateBtn">Run the update proof (mutate the h1 text in place)</button>
+<div id="log"></div>
+
+<script type="module">
+import { createElement } from '../module_01_elements/createElement.js';
+import { mount } from '../module_04_mount/mount.js';
+import { createFiber, forEachFiber, HostRoot, HostText } from '../module_03_fiber_node/fiber.js';
+import { createWorkInProgress } from '../module_05_double_buffer/doubleBuffer.js';
+import { Placement } from '../module_11_effect_list/effectList.js';
+import { commitRoot, completeDomWork } from './commit.js';
+
+const log = document.getElementById('log');
+function print(s) { log.textContent += s + '\n'; }
+
+function Card({ title }) {
+  return createElement('div', { className: 'card' },
+    createElement('h1', null, title),
+    'plain text child — rendered by this course\'s own engine',
+  );
+}
+
+const element = createElement(Card, { title: 'Hello, real browser' });
+const cardFiber = mount(element);
+cardFiber.flags |= Placement;
+
+const container = document.getElementById('container'); // the REAL page DOM
+const hostRoot = createFiber(HostRoot, null, {});
+hostRoot.stateNode = { containerInfo: container };
+hostRoot.child = cardFiber;
+cardFiber.return = hostRoot;
+
+commitRoot(hostRoot, document); // REAL document — real createElement, real appendChild
+
+print('Mounted. container.innerHTML:');
+print(container.innerHTML);
+
+document.getElementById('updateBtn').addEventListener('click', () => {
+  let currentTextFiber = null;
+  forEachFiber(hostRoot, (f) => { if (f.tag === HostText && f.pendingProps === 'Hello, real browser') currentTextFiber = f; });
+  if (!currentTextFiber) { print('(already updated)'); return; }
+  const attachedNode = currentTextFiber.stateNode;
+  print('\nBefore: attachedNode.textContent = "' + attachedNode.textContent + '"');
+  const wip = createWorkInProgress(currentTextFiber, 'Updated by a real click, real DOM mutation');
+  completeDomWork(wip, document);
+  print('After:  attachedNode.textContent = "' + attachedNode.textContent + '"');
+  print('Same node object mutated (not replaced): ' + (wip.stateNode === attachedNode));
+  print('\ncontainer.innerHTML now:');
+  print(container.innerHTML);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 12 · The Commit — Real DOM Calls</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#1F3A63; --accent-bg:#E6EBF2; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 5: Committing to Reality</p>
+  <h1>Module 12<em>The Commit — Real DOM Calls</em></h1>
+  <p class="thesis">Every module since 01 has been building toward one moment: real <code>appendChild</code>. This module is that moment — a fiber tree built entirely off-screen, then attached to a real, visible document with the fewest possible real DOM calls.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p>New DOM nodes are <span class="hi">built and nested entirely off-screen</span> during completion (bottom-up); only the OUTERMOST new fiber in a subtree needs an explicit <code>Placement</code> flag, because everything inside it arrives already attached, for free.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_dom_api.html">P4 · The real DOM mutation API</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">12</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>A furniture delivery crew doesn't carry a sofa into the house cushion by cushion, then the frame, then the legs, assembling it in your living room. They build the whole sofa in the truck — frame, cushions, legs, all attached to each other — and then make exactly ONE trip through your front door with the entire finished piece. Every other room in the house is untouched, because nothing else needed delivering.</p>
+    <p>This module's tree-building (Module 04/06) is the truck. <code>appendAllChildren</code> is assembling the sofa inside it, off the street, where nobody watching your house sees anything change yet. <code>commitPlacement</code> is the one trip through the door.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">12</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>Mounting <code>&lt;Card title="Hello"&gt;</code> (a <code>div</code> containing an <code>h1</code> and a text node):</p>
+    <ol>
+      <li><code>completeAllWork</code> walks the fiber tree bottom-up (children before parents — Module 06's completion order).</li>
+      <li>The text fiber completes first: <code>document.createTextNode("Hello")</code>. Detached — attached to nothing yet.</li>
+      <li>The <code>h1</code> fiber completes: <code>document.createElement('h1')</code>, then <code>appendAllChildren</code> puts the text node inside it. The <code>h1</code> now contains real text, but is itself attached to nothing.</li>
+      <li>The <code>div</code> fiber completes the same way — <code>createElement('div')</code>, then the <code>h1</code> AND the other text fiber both get appended inside it, off-screen.</li>
+      <li>Only the <code>Card</code> fiber (the outermost NEW thing) has <code>flags |= Placement</code>. Everything below it does not.</li>
+      <li><code>collectEffects</code> (Module 11) finds exactly one fiber with `Placement`: <code>Card</code>.</li>
+      <li><code>commitPlacement(Card)</code> — <code>Card</code> isn't a host node, so it recurses into its child (<code>div</code>) — which IS host — and does exactly one real <code>appendChild(divInstance)</code> into the live container. The <code>h1</code> and both text nodes arrive as part of that single call, already inside <code>div</code>.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">12</span><h2>A Map of the State</h2></div>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>Off-screen, mid-completion (before commit)</h4>
+      <pre class="tree">div (detached)
+├─ h1 (detached)
+│  └─ #text "Hello"
+└─ #text "plain text child"
+
+container: <span class="caret">(still empty — nothing attached yet)</span></pre>
+    </div>
+    <div class="railbox">
+      <h4>After ONE commitPlacement call</h4>
+      <pre class="tree">container
+└─ div
+   ├─ h1
+   │  └─ #text "Hello"
+   └─ #text "plain text child"</pre>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p><code>verify.mjs</code>'s real output: <code>&lt;div&gt;&lt;div class="card"&gt;&lt;h1&gt;Hello&lt;/h1&gt;plain text child&lt;/div&gt;&lt;/div&gt;</code> — produced by exactly ONE call to <code>parent.appendChild(...)</code> inside <code>commitPlacement</code>, even though four real nodes (div, h1, and two text nodes) exist in the result. Three of the four were never individually inserted into the live document at all.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">12</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>Building off-screen, verified against real React's exact traversal</h3>
+    <pre><code>function appendAllChildren(parent, workInProgress) {
+  let node = workInProgress.child;
+  while (node !== null) {
+    if (node.tag === HostComponent || node.tag === HostText) {
+      parent.appendChild(node.stateNode);        <span class="c">// off-screen — parent isn't attached yet</span>
+    } else if (node.child !== null) {
+      node.child.return = node; node = node.child; continue;
+    }
+    if (node === workInProgress) return;
+    while (node.sibling === null) {
+      if (node.return === null || node.return === workInProgress) return;
+      node = node.return;
+    }
+    node.sibling.return = node.return; node = node.sibling;
+  }
+}</code></pre>
+    <p>Transcribed directly from real React's actual function of the same name (line-cited in DECISIONS.md) — the same non-recursive, return-pointer-patching shape as Module 06's work loop, now walking a completed subtree instead of building one.</p>
+
+    <h3>Updates never call commitPlacement at all</h3>
+    <pre><code><span class="c">// completeDomWork's HostText branch:</span>
+if (fiber.stateNode === null) {
+  fiber.stateNode = document.createTextNode(fiber.pendingProps);   <span class="c">// mount</span>
+} else if (oldText !== fiber.pendingProps) {
+  fiber.stateNode.textContent = fiber.pendingProps;                <span class="c">// update — SAME node, mutated</span>
+}</code></pre>
+    <p>Verified by <code>verify.mjs</code>'s Proof 2: <code>wipTextFiber.stateNode === attachedNode</code> is <code>true</code> — the update never allocates a new text node, and never goes anywhere near <code>commitPlacement</code>, because it was never flagged <code>Placement</code> in the first place.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">12</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Handle events (<code>onClick</code>, etc.) — real react-dom's synthetic event delegation system is a large, separate subsystem, out of scope for this course.</li>
+        <li>Update deeply nested subtrees automatically — this module's update proof is a single, hand-targeted fiber; full-tree update dispatch (deciding WHICH fibers need <code>completeDomWork</code> re-run) is Module 14's capstone job.</li>
+        <li>Batch multiple renders into one commit — every call here is one complete mount-or-update cycle.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Turn a fiber tree — any fiber tree built by this course's engine — into real, correctly-nested DOM, verified structurally.</li>
+        <li>Explain exactly why only outermost-new fibers need a <code>Placement</code> flag, and why updates skip <code>commitPlacement</code> entirely.</li>
+        <li>Point to the exact object that got mutated versus created, for any given change.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">12</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">Resulting real (fake) DOM, serialized: &lt;div&gt;&lt;div class="card"&gt;&lt;h1&gt;Hello&lt;/h1&gt;plain text child&lt;/div&gt;&lt;/div&gt;
+mounted DOM matches expected structure: PASS
+...
+the REAL node object was mutated (not replaced): PASS
+
+All checks PASSED.</span></code></pre>
+    <span class="lab">Also — a real browser page, no shim</span>
+    <pre><code>Open demo.html directly in any browser. It runs this exact engine
+against the real `document`, with a button that performs the same
+update proof live, visibly, on screen.</code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result?</span>
+    <p><code>verify.mjs</code> uses <code>fakeDom.mjs</code> — a small hand-rolled DOM stand-in, since Node has no built-in <code>document</code> and this repo has no jsdom installed. It is test scaffolding, not part of the taught mechanism. If something looks structurally wrong, check <code>fakeDom.mjs</code>'s <code>appendChild</code>/<code>insertBefore</code> implementations first — a real browser's DOM would behave identically, but the stand-in is hand-written and could, in principle, have its own bug distinct from <code>commit.js</code>.</p>
+  </div>
+
+  <div class="callout crazy">
+    <span class="ct">Crazy detail — this module's own verification couldn't be checked live</span>
+    <p>While building this module, the actual in-browser check (opening <code>demo.html</code> in a real browser tab to confirm it visibly works) could not be completed — the browser tooling used to build this course reported itself unavailable mid-session, on a file that had rendered successfully minutes earlier. Rather than claim a screenshot that doesn't exist, that's reported here directly: <code>demo.html</code> is real, uses the genuine <code>document</code> API with no shim, and should work when you open it — but treat "should" honestly as slightly weaker than the Node-side proof above, which really did run, this session, and really did pass.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">12</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: if a component's ENTIRE returned subtree is brand new (a full mount, not an update), does every single host fiber inside it need its own <code>Placement</code> flag, or just the outermost one?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>Just the outermost one — this module's own Proof 1 demonstrates it directly: only <code>cardFiber</code> (a non-host <code>FunctionComponent</code>) carries <code>Placement</code>; the <code>div</code>, <code>h1</code>, and both text fibers inside it carry none. Because <code>appendAllChildren</code> already assembled all of them into the <code>div</code>'s real DOM instance off-screen during completion, a single <code>commitPlacement</code> call on the outermost fiber — which recurses down to find the first HOST descendant and inserts THAT — brings the entire already-assembled subtree along in one real DOM operation. Flagging every descendant individually would mean redundant, unnecessary calls for something that's already structurally attached to its parent.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">12</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Why build the DOM off-screen at all — why not just attach each node the instant it's created?</summary>
+    <p>Two real reasons: first, attaching nodes one at a time to a live document can trigger layout/reflow work in a real browser repeatedly, whereas building off-screen and attaching once triggers it only once. Second — and more fundamental to this course — off-screen building can be safely ABANDONED mid-way (Module 07's interruptible rendering) without the user ever seeing a half-built tree flash on screen, because nothing about it was ever visible in the first place.</p>
+  </details>
+
+  <details>
+    <summary>Does `getHostSibling` matter for a fresh mount, or only for updates/reorders?</summary>
+    <p>Mostly the latter — on a fresh mount into an empty container, there's usually nothing to insert before (the result is `null`, meaning "just append"). It becomes essential once Module 09's moves are involved: inserting a moved item at the correct position among already-committed siblings requires knowing exactly which real DOM node to `insertBefore`, and that's precisely what `getHostSibling` computes by walking the fiber tree, not the real DOM.</p>
+  </details>
+
+  <details>
+    <summary>What happens to a deleted fiber's real DOM node — does `commitDeletions` also detach its children individually?</summary>
+    <p>No — `removeHostDescendants` finds the outermost host node(s) within a deleted fiber and calls `removeChild` on those alone. Removing a parent DOM node from the document also removes everything nested inside it automatically (that's how the DOM works) — so, symmetrically with placement, only the outermost real node(s) need an explicit removal call.</p>
+  </details>
+
+  <details>
+    <summary>Is `className` really special-cased in real react-dom, or is that this course's own invention?</summary>
+    <p>Real: `class` is a reserved word in JavaScript, so DOM elements expose it as the `className` property instead of a `class` property — real `react-dom`'s actual host config has to special-case this exact mismatch between the JSX prop name authors write (`className`, matching the DOM property) and what ends up as the HTML attribute (`class`). This module's `setInitialProperties` reproduces that one specific, real special case; it isn't inventing new behavior.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">12</span><h2>What's Next</h2></div>
+  <p>The tree can now mount and update for real. But every "component" in this course so far has been a pure function of its props — nothing has ever remembered anything between renders on its own. Module 13 gives a fiber its own memory: hooks, stored as a linked list keyed by call order, and the mechanical (not stylistic) reason their call order can never change.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_11_effect_list/tutorial.html">← Module 11: The Effect List</a>
+  <a class="next" href="../module_13_hooks/tutorial.html">Module 13: Hooks as a Linked List on the Fiber →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p><code>appendAllChildren</code>, <code>getHostSibling</code>, and <code>commitPlacement</code>/<code>insertOrAppendPlacementNode</code> were transcribed directly, with line numbers, from real <code>react-dom@18.3.1</code> (<code>react-dom.development.js:21771-21800</code>, <code>23815-23945</code>) in <code>research_reconciliation/react-lab/node_modules/react-dom</code>. Both proofs in <code>verify.mjs</code> were produced by actually executing the code against a hand-rolled DOM stand-in (<code>fakeDom.mjs</code>, clearly not a real browser). <code>demo.html</code> runs the same engine against a genuine browser <code>document</code>; live in-browser confirmation of it could not be completed in this build session due to a tooling outage, reported plainly above rather than fabricated.</p>
+</div>
+
+</div>
+</body>
+</html>
