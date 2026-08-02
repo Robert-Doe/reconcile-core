@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 14 · Capstone — The Full Loop, End to End</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#8A6D1F; --accent-bg:#F6F0DE; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Capstone</p>
+  <h1>Module 14<em>Capstone — The Full Loop, End to End</em></h1>
+  <p class="thesis">Thirteen modules built thirteen pieces. This one wires them together — nothing reimplemented, only composed — into an engine that mounts a real app, handles a real click, updates real state, and correctly skips a memoized component across multiple real updates. Building it surfaced two genuine bugs. Both are documented, not hidden.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p><span class="hi">Every import in engine.js is unmodified</span> from the module that built it. The only new code is the wiring between them — and precisely that wiring is where this build's own two real bugs turned up.</p>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">14</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>Every earlier module built one instrument and proved it plays its part correctly, alone, in a practice room. This module is the first rehearsal with the whole ensemble — and first rehearsals are exactly where you discover the trumpet and the timpani were both counting from a different measure one. Nothing about any individual instrument was wrong. The bugs found here were never "Module 10's bailout is broken" or "Module 01's createElement is broken" — both had already been proven correct, alone. They were about the SEAM: what, exactly, does "returning" mean when Module 10's bailout logic hands control back to Module 06's work loop?</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">14</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>Mounting <code>&lt;App/&gt;</code> (a memoized <code>Header</code> + a stateful <code>Counter</code>), then clicking increment twice:</p>
+    <ol>
+      <li><code>mountApp</code> creates a fiber for <code>App</code>, flags it <code>Placement</code>, wraps it in a <code>HostRoot</code>, and runs the full loop: <code>beginWork</code> (dispatches per fiber tag, composing Modules 04/08/09/10/13) → <code>completeUnitOfWork</code> (Module 06's shape, fused with Module 12's DOM building) → repeat until done.</li>
+      <li><code>commit</code> (Module 11's pruned walk + Module 12's placement/deletion) attaches the whole thing in one real DOM operation.</li>
+      <li>A click calls <code>setCount(c =&gt; c + 1)</code> — Module 13's <code>useState</code>, wrapped by this module to also call <code>scheduleUpdate</code>.</li>
+      <li><code>scheduleUpdate</code> creates a workInProgress for the top <code>App</code> fiber via Module 05's <code>createWorkInProgress</code>, with the SAME props reference — and forces it to actually re-execute (see "Limits" below).</li>
+      <li>The loop runs again. <code>Header</code>'s fiber, reached via normal reconciliation, checks Module 10's real bailout condition — passes (thanks to <code>memo</code>) — and is skipped entirely, not even visited below itself.</li>
+      <li><code>Counter</code>'s fiber does NOT bail (its own hook state changed) — re-renders, and Module 09 reconciles its single changed text node in place.</li>
+      <li>Commit runs again — only the changed text node gets touched.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">14</span><h2>A Map of the State</h2></div>
+
+  <p>Real, executed output from <code>verify.mjs</code>, across mount and two updates:</p>
+
+  <div class="io">
+    <span class="lab">After mount</span>
+    <pre><code>&lt;div&gt;&lt;div class="app"&gt;&lt;h1&gt;Static Header&lt;/h1&gt;&lt;div class="counter"&gt;&lt;span&gt;count: 0&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+Header rendered exactly once: <span class="new">true</span></code></pre>
+    <span class="lab">After setCount(c =&gt; c + 1)</span>
+    <pre><code>&lt;div&gt;&lt;div class="app"&gt;&lt;h1&gt;Static Header&lt;/h1&gt;&lt;div class="counter"&gt;&lt;span&gt;count: 1&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+Header STILL rendered only once: <span class="new">true</span>
+the h1's real DOM node is the SAME object: <span class="new">true</span></code></pre>
+    <span class="lab">After setCount(5)</span>
+    <pre><code>&lt;div&gt;&lt;div class="app"&gt;&lt;h1&gt;Static Header&lt;/h1&gt;&lt;div class="counter"&gt;&lt;span&gt;count: 5&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
+Header STILL rendered only once across BOTH updates: <span class="new">true</span></code></pre>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">14</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>The dispatcher — composing, not reimplementing</h3>
+    <pre><code>function beginWork(current, workInProgress, forceUpdate) {
+  if (workInProgress.tag === FunctionComponent) {
+    let pendingProps = workInProgress.pendingProps;
+    if (current !== null && workInProgress.type.isMemo) {
+      pendingProps = resolveMemoProps(current, pendingProps);   <span class="c">// Module 10</span>
+    }
+    if (!forceUpdate &amp;&amp; current !== null &amp;&amp; shouldBailout(current, pendingProps, false)) {
+      workInProgress.child = current.child;
+      return null;                                              <span class="c">// ← see Bug 2 below</span>
+    }
+    prepareToUseHooks(workInProgress);                          <span class="c">// Module 13</span>
+    const rendered = workInProgress.type(pendingProps);
+    finishHooks();
+    workInProgress.child = reconcileSingleChild(workInProgress,  <span class="c">// Module 08</span>
+      current ? current.child : null, rendered);
+    return workInProgress.child;
+  }
+  if (workInProgress.tag === HostComponent) {
+    const children = normalizeChildren(workInProgress.pendingProps.children);  <span class="c">// Module 04</span>
+    workInProgress.child = reconcileChildrenArray(workInProgress,              <span class="c">// Module 09</span>
+      current ? current.child : null, children);
+    return workInProgress.child;
+  }
+  return null;
+}</code></pre>
+    <p>Every function called here — <code>resolveMemoProps</code>, <code>shouldBailout</code>, <code>prepareToUseHooks</code>, <code>reconcileSingleChild</code>, <code>normalizeChildren</code>, <code>reconcileChildrenArray</code> — is imported unmodified from the module that built and proved it.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">14</span><h2>Limits — What This Course Does Not Build</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Explicitly out of scope</h5>
+      <ul>
+        <li>Event delegation — the demo app wires its own <code>onclick</code> directly, a documented gap since Module 12.</li>
+        <li><code>childLanes</code> propagation — this engine forces the update's entry fiber to always re-execute rather than tracking which descendants genuinely have pending work. Real, flagged simplification (DECISIONS.md).</li>
+        <li>Concurrent rendering, Suspense, transitions, the real Scheduler package — Track 2's A3/A6 territory, not built here.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>What the whole engine, together, can do</h5>
+      <ul>
+        <li>Mount a real, multi-component app and correctly render it to a real (or real-shaped) DOM.</li>
+        <li>Handle real state updates from a real event, through the actual hook/scheduling/diffing/commit pipeline.</li>
+        <li>Correctly and repeatedly bail out a memoized component while updating an unrelated stateful sibling — proven across multiple updates, not just once.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">14</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">Header rendered exactly once: PASS
+...
+count now shows 1: PASS
+Header STILL rendered only once (bailed out on update #1): PASS
+the h1's real DOM node is the SAME object — never rebuilt: PASS
+...
+count now shows 5: PASS
+Header STILL rendered only once across BOTH updates: PASS
+
+All checks PASSED.</span></code></pre>
+    <span class="lab">Also — a real browser page, no shim</span>
+    <pre><code>Open demo.html directly. A real button, a real click handler, a real
+DOM, and a live log confirming Header's render count stays at 1.</code></pre>
+  </div>
+
+  <div class="callout crazy">
+    <span class="ct">Crazy detail — two real bugs, in order, both fixed live</span>
+    <p><strong>Bug 1:</strong> the first draft passed one stable <code>{}</code> reference into <code>createElement(Header, ...)</code> every render, expecting reference-equal props. It didn't work — <code>createElement</code> (correctly, per Module 01) always builds a fresh <code>props</code> object regardless of what config reference you pass. The fix was wrapping <code>Header</code> in <code>memo</code>, which routes props through Module 10's real shallow-equal-then-substitute trick. <strong>Bug 2:</strong> once bailout started firing, the committed HTML showed duplicated content — <code>"Static HeaderStatic Header"</code>. The bailout branch was returning <code>workInProgress.child</code> to the work loop as if it were normal next-work, which made the loop revisit the OLD, uncloned <code>h1</code> fiber and treat it as a fresh mount (since its own <code>.alternate</code> was <code>null</code>), creating a duplicate text node. The fix: a real bailout returns <code>null</code> — "nothing to descend into" — exactly matching Module 10's own thesis, which this integration had briefly failed to actually honor. Full traces of both are in DECISIONS.md.</p>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">A note on this module's own live-browser verification</span>
+    <p>As with Module 12, the in-session browser check for <code>demo.html</code> could not be completed — the tooling used to build this course reported itself unavailable. The Node-side proof above is real and did run, this session, against a hand-rolled DOM stand-in (Module 12's <code>fakeDom.mjs</code>); <code>demo.html</code> is written to use the genuine browser <code>document</code> with no shim, and should work identically when you open it.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">14</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: if <code>App</code> itself were wrapped in <code>memo</code> too, and <code>scheduleUpdate</code> did NOT force the entry fiber to skip its own bailout check, what would happen when you clicked the increment button?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>Nothing would happen on screen — silently. <code>App</code>'s own props (there are none) would be reference-equal (or shallow-equal via <code>memo</code>) to last render's, and it has no hooks of its own with pending updates, so <code>shouldBailout</code> would return <code>true</code> for <code>App</code> itself. Per Module 10's real mechanism, that means <code>App</code>'s ENTIRE child subtree — <code>Header</code> AND <code>Counter</code> — gets reused wholesale, by reference, without a single fiber inside being visited. <code>Counter</code>'s pending state update would sit in its hook queue forever, applied to a render that never happens. This is exactly the real-world failure real React's <code>childLanes</code> mechanism exists to prevent — and exactly why this course's simplified engine deliberately never lets the entry fiber bail out, as a stand-in for tracking that properly.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">14</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Is this engine "real React" now?</summary>
+    <p>No, and it was never trying to be — it's a small, honest, verified model of the mechanisms real React uses, with every simplification named and every real behavior checked against real source. It has no events system, no context, no Suspense, no concurrent scheduling, no error boundaries, no server rendering. What it DOES have — the fiber shape, double buffering, the work loop, keyed diffing, bailouts, the effect list, the commit split, and hooks — was checked line-by-line against real <code>react@18.3.1</code>/<code>react-dom@18.3.1</code> throughout, which is a different and more useful claim than "this is a tiny React clone."</p>
+  </details>
+
+  <details>
+    <summary>Why did building the integration surface bugs that building each module alone didn't?</summary>
+    <p>Because each module's own tests only ever exercised the CONTRACT that module itself defines — Module 10's tests confirmed its own <code>shouldBailout</code>/<code>resolveMemoProps</code> functions behave correctly in isolation, which they do. Nothing in Module 10 alone could catch "what does the WORK LOOP do with this function's return value," because Module 10 doesn't have a work loop. Integration bugs live specifically in the gaps between correct pieces — which is exactly why this phase exists as its own module rather than being assumed to fall out for free.</p>
+  </details>
+
+  <details>
+    <summary>If I wanted to add `useEffect` next, roughly how much of this engine would need to change?</summary>
+    <p>Less than you'd think, structurally: `useEffect` is another hook, so it plugs into Module 13's existing linked-list mechanism with its own `dependencies`/`create`/`destroy` fields on the hook node. The harder part is scheduling WHEN effects run relative to commit (real React runs passive effects asynchronously, after paint) — which would mean extending this module's `commit` function to also collect and run effect callbacks, in the right order, after the DOM is attached. The fiber shape, the work loop, and the commit split wouldn't need to change at all.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">14</span><h2>What's Next</h2></div>
+  <p>Track 1 is done — you built a real, verified reconciler. Track 2 starts from here, using actual <code>react</code>/<code>react-dom</code> (already installed in <code>research_reconciliation/react-lab</code>) to check every claim this track made against the real, un-simplified engine: the real Fiber shape under a debugger (A2), the real array-diff source (A4), the real host config's DOM calls (A5), and the real Scheduler and hooks, plus what Concurrent Mode adds that this engine structurally cannot do (A3/A6). See <a href="../ROADMAP.md">ROADMAP.md</a> for the full Track 2 module list.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_13_hooks/tutorial.html">← Module 13: Hooks as a Linked List on the Fiber</a>
+  <a class="next" href="../prerequisites.html">Track 1 complete — back to the course index →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p>Every function this module calls was built and independently verified in Modules 01–13; none is reimplemented here. Both integration bugs documented above and in DECISIONS.md are real — produced by actually executing <code>verify.mjs</code> during this module's construction, including one that required force-diagnosing an incorrect HTML output (duplicated text) back to its root cause in a single function's return value. <code>demo.html</code> runs the identical engine against a genuine browser <code>document</code>; live in-browser confirmation could not be completed this session due to a tooling outage, reported plainly rather than fabricated (see Module 12's colophon for the same note).</p>
+</div>
+
+</div>
+</body>
+</html>
