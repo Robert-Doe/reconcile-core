@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 13 · Hooks as a Linked List on the Fiber</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#8C5A2B; --accent-bg:#F4EAE0; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 6: State</p>
+  <h1>Module 13<em>Hooks as a Linked List on the Fiber</em></h1>
+  <p class="thesis">Every component so far has been a pure function of its props — call it twice with the same input, get the same output, no memory. This module gives a fiber its own memory, and proves, on a real schedule, exactly why that memory's addressing scheme makes "don't call hooks conditionally" a mechanical fact, not a style rule.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p>Hooks are a <span class="hi">linked list stored on <code>fiber.memoizedState</code></span>, addressed purely by <em>how many times a hook function has already been called this render</em> — never by name, never by which line of source code called it.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_closures_call_order.html">P5 · Closures &amp; call-order state</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">13</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>Recall P5's coat-check that assigns hooks by arrival order, not by name. This module builds the real coat-check ledger: a chain of tickets, ticket #1 stapled to ticket #2, stapled to ticket #3, and so on — one chain per customer (fiber), re-read from the start on every visit. The attendant never looks at your face. They only ever ask "is this your first, second, or third item today?" and walk that many staples down the chain.</p>
+    <p>If you hand over only two items on a visit where you usually hand over three, the chain that gets rebuilt this time is one staple shorter — nothing goes wrong <em>yet</em>. It goes wrong the NEXT time you show up with three items again, and the attendant, expecting a chain that's only two staples long from last time, runs out of chain to walk.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">13</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>A component calling <code>useState(0)</code> then <code>useState('clicks')</code>, across a mount and an update:</p>
+    <ol>
+      <li><strong>Mount</strong> (<code>fiber.alternate === null</code>): each <code>useState</code> call runs <code>mountWorkInProgressHook</code> — allocates a fresh hook node, appends it to the fiber's list (first call sets <code>fiber.memoizedState</code>; later calls extend via <code>.next</code>).</li>
+      <li>Calling <code>setCount(5)</code> later doesn't change anything immediately — it pushes <code>5</code> onto that hook's <code>queue.pending</code> array.</li>
+      <li><strong>Update</strong> (<code>fiber.alternate !== null</code>, via Module 05's <code>createWorkInProgress</code>): each <code>useState</code> call now runs <code>updateWorkInProgressHook</code> — advances a cursor through the OLD fiber's hook list, cloning each node forward into a brand-new list on the new fiber.</li>
+      <li>While cloning the "count" hook, its pending queue (<code>[5, c => c+1]</code>) is applied in order: <code>0 → 5 → 6</code>. The "clicks" hook has an empty queue, so it just carries its value forward unchanged.</li>
+      <li>The OLD fiber's hook list is never touched — same guarantee as Module 05, one level deeper.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">13</span><h2>A Map of the State</h2></div>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>Old fiber's hook list (never touched)</h4>
+      <pre class="tree">fiberA.memoizedState
+└─ { memoizedState: 0, next: ● }
+   └─ { memoizedState: "clicks", next: null }</pre>
+    </div>
+    <div class="railbox">
+      <h4>New fiber's hook list (cloned + updated)</h4>
+      <pre class="tree">fiberB.memoizedState
+└─ { memoizedState: <span class="new">6</span>, next: ● }
+   └─ { memoizedState: "clicks", next: null }</pre>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p><code>verify.mjs</code>'s real output: <code>fiberB.memoizedState !== fiberA.memoizedState</code> is <code>true</code>, and <code>fiberA.memoizedState.memoizedState</code> — read AFTER building fiberB — is still <code>0</code>. Two genuinely separate linked lists, one per fiber, exactly like two genuinely separate fiber trees in Module 05.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">13</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>Addressed by position, not name — verified against real React</h3>
+    <pre><code>function updateWorkInProgressHook() {
+  const nextCurrentHook = currentHook === null
+    ? currentlyRenderingFiber.alternate.memoizedState   <span class="c">// first hook this render</span>
+    : currentHook.next;                                 <span class="c">// Nth hook: walk N-1 times</span>
+
+  if (nextCurrentHook === null) {
+    throw new Error('Rendered more hooks than during the previous render.');
+  }
+  currentHook = nextCurrentHook;
+  <span class="c">// ...clone currentHook into a new node on the new fiber's list...</span>
+}</code></pre>
+    <p>Verified against real React's actual function of the same name (line-cited in DECISIONS.md). Nothing here ever reads a variable name, a line number, or which specific hook function was called — only "how many times have we advanced this render."</p>
+
+    <h3><code>useState</code> is <code>useReducer</code> in a costume</h3>
+    <pre><code>function basicStateReducer(state, action) {
+  return typeof action === 'function' ? action(state) : action;
+}
+<span class="c">// real React: function updateState(initialState) { return updateReducer(basicStateReducer); }</span></code></pre>
+    <p>This is why <code>setCount(5)</code> and <code>setCount(c =&gt; c + 1)</code> both work — <code>action</code> is checked for being a function at dispatch time, not at the call site.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">13</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Trigger an actual re-render when <code>setState</code> is called — this module's <code>setState</code> only queues; nothing here schedules Module 06's work loop to run again (that wiring is Module 14's job).</li>
+        <li>Skip a re-render based on priority — the pending queue is a plain array, applied in full, in order, every time. No lanes, no skipping (Track 2's territory).</li>
+        <li><code>useEffect</code>, <code>useMemo</code>, <code>useRef</code> — this module builds exactly enough hook infrastructure for <code>useState</code>; the same linked-list mechanism generalizes to those, but they aren't built here.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Store and correctly update state across real renders, verified against a real double-buffered fiber pair.</li>
+        <li>Explain, mechanically, exactly why hook call order must never change — and reproduce the real error on the real timing real React uses.</li>
+        <li>Explain why <code>useState</code> and <code>useReducer</code> are, underneath, the same function.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">13</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">count1 reflects BOTH queued updates: 0 -> 5 -> 6: PASS
+fiberA.memoizedState still reads 0 (untouched — Module 05's guarantee, one module later): PASS
+...
+skippedFiber ends up with only 1 hook in its list (not an error, yet): PASS
+Error thrown on the render AFTER the skip: Rendered more hooks than during the previous render.
+matches real React's actual error message: PASS
+
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout crazy">
+    <span class="ct">Crazy detail — the error doesn't fire when you'd expect</span>
+    <p><code>verify.mjs</code>'s Proof 3 traces this precisely: the render that SKIPS a hook (simulating <code>if (cond) useState(...)</code> going false) does not throw at all — it just quietly produces a hook list one entry shorter. It's the very NEXT render, expecting to walk as far down the list as it did last time, that runs out of chain and throws. If you've ever seen this error appear on a render that "looks fine" by itself, this is why — the actual mistake was one render earlier.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">13</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: two components, <code>A</code> and <code>B</code>, each call <code>useState</code> exactly twice, in the same order, every render. Do they ever risk reading each other's hook state by accident?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>No — and the reason is worth being precise about: each fiber has its OWN <code>memoizedState</code> field, its own independent hook linked list. "Addressed by call order" means "by position <em>within one fiber's own list</em>," never globally. <code>currentlyRenderingFiber</code> is reset by <code>prepareToUseHooks</code> before every component's render specifically so <code>mountWorkInProgressHook</code>/<code>updateWorkInProgressHook</code> always write into the CURRENT fiber's list, never some other fiber's. Two components can call hooks in the exact same order with zero risk of cross-talk, because "order" is scoped per-fiber from the start.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">13</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Why does the update path CLONE the old hook instead of just reusing the same object?</summary>
+    <p>Same reason Module 05 double-buffers fibers instead of mutating one tree in place: the OLD fiber (and everything reachable from it, including its hooks) needs to stay exactly as it was, in case this render gets abandoned (Module 07) or something needs to compare "before" against "after." Mutating the old hook directly would mean there's no "before" left to compare against.</p>
+  </details>
+
+  <details>
+    <summary>What actually happens, in this module's code, if you call a hook OUTSIDE of a render (no `prepareToUseHooks` call first)?</summary>
+    <p><code>currentlyRenderingFiber</code> would be <code>null</code>, and the very first line of <code>mountWorkInProgressHook</code>/<code>updateWorkInProgressHook</code> that touches <code>currentlyRenderingFiber.memoizedState</code> would throw a <code>TypeError</code> reading a property of <code>null</code>. Real React's actual error message for this exact situation ("Invalid hook call...") is friendlier, but the underlying mechanical cause — no fiber is currently "the one being rendered" — is the same.</p>
+  </details>
+
+  <details>
+    <summary>Does the plain-array pending queue actually behave differently from real React's circular linked list, in any case this course would notice?</summary>
+    <p>Not for anything Track 1 exercises — both process pending updates in the order they were queued, via the same reducer, arriving at the same final state. The behavioral difference only shows up under CONCURRENT rendering with mixed priorities, where real React's queue can skip a lower-priority update temporarily and resume it later — a scenario this course's engine has no mechanism to even construct (no lanes), which is exactly why the simplification is safe here and explicitly flagged as narrower scope in DECISIONS.md.</p>
+  </details>
+
+  <details>
+    <summary>Is `fiber.memoizedState` overloaded to mean two different things depending on fiber type?</summary>
+    <p>Yes, and that's a real, verified fact about React's actual fiber shape, not an artifact of this course's simplification — the same field name is genuinely repurposed: for a `HostComponent`/`HostText` fiber it's unused by this course's engine; for a `FunctionComponent` fiber, it's the head of the hook linked list. Real React does the same field-reuse across different fiber tags for several fields, not just this one — a space-saving convention from treating `Fiber` as one shared object shape rather than a different class per tag.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">13</span><h2>What's Next</h2></div>
+  <p>Every piece exists now: elements, fibers, double buffering, the work loop, yielding, diffing, bailouts, the effect list, the commit, and now state. Module 14 is the capstone — wiring every module built so far into one engine that runs a real, clickable, stateful counter app in an actual browser tab, end to end, with nothing left as a stub.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_12_commit/tutorial.html">← Module 12: The Commit — Real DOM Calls</a>
+  <a class="next" href="../module_14_capstone/tutorial.html">Module 14: Capstone — The Full Loop, End to End →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p>The hook object shape, the mount/update dispatcher split, and <code>useState</code>'s real implementation as <code>useReducer(basicStateReducer)</code> were read directly, with line numbers, from real <code>react-dom@18.3.1</code> (<code>react-dom.development.js:15632-15746</code>, <code>16162-16186</code>) in <code>research_reconciliation/react-lab/node_modules/react-dom</code>, including the verbatim real error message. All three proofs, including the exact render-after-the-skip timing of the thrown error, were produced by executing <code>verify.mjs</code>.</p>
+</div>
+
+</div>
+</body>
+</html>
