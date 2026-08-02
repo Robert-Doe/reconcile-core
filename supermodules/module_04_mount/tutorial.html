@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 04 · Mount — Element Tree to Fiber Tree</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#3A5BA0; --accent-bg:#E9EEF8; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 2: The Fiber Tree</p>
+  <h1>Module 04<em>Mount — Element Tree to Fiber Tree</em></h1>
+  <p class="thesis">Module 01-02 build elements. Module 03 hand-wires fibers. This module writes the one function that connects them: give it an element, it gives back a fully-linked fiber tree — including calling every function component along the way to find out what it actually renders.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p>A function-component fiber has exactly <span class="hi">one child: the fiber for whatever the function returned</span> when called. Mounting isn't "convert this element to a fiber" — it's "convert this element to a fiber, and if that required calling a function, keep going with whatever came back."</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_reference_equality.html">P1 · Reference equality</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">04</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>Back to the furniture shop. A customer's work order says "type: Custom Bookshelf Kit." That's not a real, physical thing you can hand a carpenter — it's a <em>recipe</em>, and the only way to find out what it actually contains is to open it: unwrap the kit, and inside is another work order, this one for "type: wooden frame with 4 shelves," which <em>is</em> a real buildable thing.</p>
+    <p>Mounting is the clerk unwrapping every kit-type order they receive, all the way down, until every remaining order is for a real, physical thing. The "Custom Bookshelf Kit" ticket still exists in the shop's paperwork — it's just that its one and only attached sub-ticket is "wooden frame," because that's what was inside.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">04</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>Mounting <code>createElement(Card, { title: 'Hello', showFooter: false })</code>, where <code>Card</code> returns a <code>div</code> containing an <code>h1</code>, a text string, and a conditional footer:</p>
+    <ol>
+      <li>Create a fiber for the <code>Card</code> element. <code>type</code> is a function, so <code>tag = FunctionComponent</code>.</li>
+      <li>Because it's a <code>FunctionComponent</code>: <strong>call <code>Card(props)</code></strong>. It returns a new element (the <code>div</code>).</li>
+      <li>Mount <em>that</em> element, and set the result as the <code>Card</code> fiber's <code>child</code>.</li>
+      <li>The <code>div</code>'s <code>type</code> is a string, so <code>tag = HostComponent</code>. Its children come from <code>props.children</code>: <code>[&lt;h1&gt;, "plain text child", false]</code> (the last one because <code>showFooter</code> was <code>false</code>).</li>
+      <li><code>normalizeChildren</code> flattens and filters that array: <code>false</code> is dropped entirely. Two children remain: the <code>h1</code> element and the string.</li>
+      <li>Each remaining child is mounted and linked via <code>appendChild</code> (Module 03) — the string becomes a <code>HostText</code> fiber directly, no further recursion needed.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">04</span><h2>A Map of the State</h2></div>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>Input element (nested, via createElement)</h4>
+      <pre class="tree">Card { title: "Hello", showFooter: false }
+└─ div { className: "card" }
+   ├─ h1 → "Hello"
+   ├─ "plain text child"
+   └─ false          ← showFooter && &lt;footer/&gt;</pre>
+    </div>
+    <div class="railbox">
+      <h4>Output fiber tree (mount() result)</h4>
+      <pre class="tree">FunctionComponent(Card)
+└─ HostComponent(div)
+   ├─ HostComponent(h1)
+   │  └─ <span class="new">HostText("Hello")</span>
+   └─ <span class="new">HostText("plain text child")</span>
+      <span class="caret">← footer produced NO fiber at all</span></pre>
+    </div>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Watch it</span>
+    <p>There is no third child under <code>div</code> representing the dropped footer — not a placeholder, not a fiber marked "empty." <code>normalizeChildren</code> filters it out before any fiber for it is ever created. This is verified, not assumed: <code>verify.mjs</code>'s traversal has exactly 5 entries, and independently asserts "div has exactly 2 children."</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">04</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>The FunctionComponent branch — the heart of the module</h3>
+    <pre><code>if (fiber.tag === FunctionComponent) {
+  const rendered = fiber.type(fiber.pendingProps);   <span class="c">// CALL it</span>
+  const childFiber = mount(rendered);                <span class="c">// mount what it returned</span>
+  appendChild(fiber, childFiber);
+  return fiber;
+}</code></pre>
+    <p>Verified structurally against real React's <code>updateFunctionComponent</code> (<code>react-dom.development.js:19585</code>), which calls <code>renderWithHooks(...)</code> to get <code>nextChildren</code> — the function's return value — <em>before</em> doing anything else with this fiber. The function component fiber itself never has "real" children of its own; it has exactly one child, which is whatever its function call produced.</p>
+
+    <h3>Dropping falsy children — where <code>{cond &amp;&amp; &lt;X/&gt;}</code> actually gets handled</h3>
+    <pre><code>function visit(child) {
+  if (child === null || child === undefined || typeof child === 'boolean') return;
+  if (Array.isArray(child)) { for (const c of child) visit(c); return; }
+  out.push(child);
+}</code></pre>
+    <p>Exactly three values are silently dropped: <code>null</code>, <code>undefined</code>, <code>boolean</code>. Not <code>0</code>. Not <code>''</code>. This is a real, well-documented React footgun — <code>{count && &lt;Badge/&gt;}</code> renders a visible, stray "0" text node when <code>count</code> is <code>0</code>, because <code>0</code> is a number, not a boolean, and this function only drops booleans.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">04</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Re-mount on top of an existing tree ("update") — every call to <code>mount()</code> builds a brand new tree from nothing. There's no "last time" yet.</li>
+        <li>Pause partway through — <code>mount()</code> is recursive; like any recursive function, it runs to completion or not at all.</li>
+        <li>Touch a real DOM node — <code>stateNode</code> stays <code>null</code> on every fiber this module produces.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Turn any element tree — including ones with function components, conditionals, and text — into a correctly-shaped fiber tree.</li>
+        <li>Predict, correctly, which children of a JSX expression disappear entirely versus render as visible (if unexpected) text.</li>
+        <li>Explain exactly why a function component's fiber has one child, never "its own" children.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">04</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">Mounted fiber tree, depth-first:
+  0: FunctionComponent(Card)
+  1: HostComponent(div)
+  2: HostComponent(h1)
+  3: HostText("Hello")
+  4: HostText("plain text child")
+
+Matches expected (footer correctly dropped, since showFooter=false): true
+...
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result?</span>
+    <p>A <code>TypeError: fiber.type is not a function</code> almost always means an element's <code>type</code> was a string (like <code>'div'</code>) but got routed into the <code>FunctionComponent</code> branch — double check the <code>tag</code> assignment logic in <code>createFiberFromElement</code> if you've modified it. If the footer shows up anyway, confirm you're testing with <code>showFooter: false</code> (a boolean), not <code>showFooter: 0</code> or <code>""</code> — only true booleans get dropped, on purpose.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">04</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: if <code>Card</code>'s function body itself contained a nested function component — say, <code>Card</code> returns <code>&lt;Wrapper&gt;&lt;div/&gt;&lt;/Wrapper&gt;</code> — how many <code>FunctionComponent</code>-tagged fibers appear in the mounted tree, and how are they related?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>Two: one for <code>Card</code>, one for <code>Wrapper</code> — and <code>Wrapper</code>'s fiber is <code>Card</code>'s fiber's <code>child</code>, exactly as if <code>Wrapper</code> were a host element. <code>mount()</code> doesn't special-case "a function component that returns another function component" — it's the exact same recursive call, one level deeper. This is precisely why the recursion in this module has to eventually become the explicit loop in Module 06: nothing bounds how many function components can be nested this way, and a sufficiently deep chain would exhaust the call stack in a way an explicit loop over a heap-allocated fiber tree never would.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">04</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Why does a FunctionComponent fiber exist at all, if it just has one child that's "the real thing"? Why not skip straight to mounting the returned element?</summary>
+    <p>Because the component's identity has to persist across renders for exactly the reason Module 03 introduced <code>pendingProps</code>/<code>memoizedProps</code>: on the next render, this course needs somewhere to store "here's the props <code>Card</code> was called with last time" so Module 10's bailout can compare them. If we skipped straight to the <code>div</code>, there'd be no fiber anywhere remembering that a <code>Card</code> call happened at all — and Module 13's hooks explicitly need a fiber "home" for state, which must be the component's own fiber, not its rendered output's.</p>
+  </details>
+
+  <details>
+    <summary>What happens if a function component returns an array of elements (not wrapped in a single parent)?</summary>
+    <p>This module's <code>mount()</code> doesn't handle that case — it calls <code>mount(rendered)</code> expecting one element, string, or number. Real React supports returning arrays/fragments via additional reconciliation logic this course doesn't build (documented out of scope). If you tried it here, <code>isElement()</code> would return <code>false</code> for a plain array and the function would throw — a deliberate, honest failure rather than silent wrong behavior.</p>
+  </details>
+
+  <details>
+    <summary>Is `normalizeChildren` doing anything React-specific, or is it just `Array.flat()` plus a filter?</summary>
+    <p>Structurally it's extremely close to flatten-plus-filter — the React-specific part is entirely the *choice* of which three values count as "nothing": `null`, `undefined`, `boolean`. `Array.prototype.flat()` alone has no concept of that; we wrote the recursive `visit` by hand specifically so those three exact values are dropped and nothing else is.</p>
+  </details>
+
+  <details>
+    <summary>Why is `createFiberFromElement` a private, unexported function here, when Module 03 exports `createFiber`?</summary>
+    <p>Different jobs: Module 03's `createFiber` is a bare constructor call useful on its own (you used it directly in that module's `verify.mjs`, hand-wiring a tree). This module's element-to-one-fiber step only makes sense embedded inside the larger recursive `mount()` traversal — nothing else in this course calls it in isolation, so exporting it would just be unused surface area (see DECISIONS.md).</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">04</span><h2>What's Next</h2></div>
+  <p>You can now build a correct fiber tree from an element tree — but only once, and only via recursion that can't be paused. Module 05 introduces the <em>second</em> tree: <code>alternate</code>, the field Module 03 reserved but never used. You'll see how two trees can coexist, one visible ("current") and one being built ("workInProgress"), and why that split — not anything about the loop itself — is what makes an update never show the user a half-finished tree.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_03_fiber_node/tutorial.html">← Module 03: The Fiber Node &amp; Linked-List Tree</a>
+  <a class="next" href="../module_05_double_buffer/tutorial.html">Module 05: Double Buffering →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p>The function-component-calls-itself-then-mounts-the-result flow was verified structurally against real <code>react-dom@18.3.1</code>'s <code>updateFunctionComponent</code> (<code>react-dom.development.js:19585</code>), which calls <code>renderWithHooks</code> (line 19617) to obtain <code>nextChildren</code> before any child reconciliation happens. The falsy-children-dropped behavior was checked against real, executed output via <code>verify.mjs</code>, not asserted from documentation.</p>
+</div>
+
+</div>
+</body>
+</html>
