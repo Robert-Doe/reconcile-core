@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 09 · Keyed List Diffing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#A32E2E; --accent-bg:#F8E9E9; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 4: Reconciliation Proper</p>
+  <h1>Module 09<em>Keyed List Diffing</em></h1>
+  <p class="thesis">This is the module the whole "why do keys matter" conversation is actually about. Real React does not run a Longest-Increasing-Subsequence diff on your lists — by its own source comment, it can't, because fibers have no back-pointers. What it runs instead is a cheaper heuristic, and this module reproduces it exactly, including the case where it visibly isn't optimal.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p>A single forward pass tracks the <span class="hi">highest old index placed so far</span>. A reused item below that mark gets flagged as moved; one at or above it doesn't. This is a running maximum, not a full reorder computation — cheap, and, as this module proves, not always minimal.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_reference_equality.html">P1 · Reference equality</a>
+    <a href="../prereqs/prereq_linked_list_tree.html">P2 · Linked-list trees</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">09</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>Picture people re-forming a queue after being told the new order. An official walks the new line front to back with one number in their head: "the highest position-tag I've confirmed so far." Person by person: if this person's OLD position-tag is higher than that running number, wave them through — "you were already further back than everyone I've confirmed, you can stay." If their old tag is LOWER than the running number, that's a problem — someone I already confirmed was standing further back than you used to be, so for you to be here now, you must have physically walked forward past them. Tag you for a real move.</p>
+    <p>The official never looks at the whole line at once, never asks "what's the true minimum number of people who need to move." They make one pass, with one running number, and that's it — fast, but not always the fewest possible taps on the shoulder.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">09</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p><code>reconcileChildrenArray(parent, oldFirstChild, newChildren)</code>:</p>
+    <ol>
+      <li><strong>Phase 1 (lockstep):</strong> walk old and new children together, position by position, as long as keys match. Reuse (same key + type) or replace (same key, different type) at each step. The instant a key doesn't match at the current position, stop — even if it would have matched further along.</li>
+      <li>If every new child got consumed in phase 1: delete whatever's left of the old chain. Done.</li>
+      <li>Else if the old chain ran out first: every remaining new child is a fresh insertion — no lookup needed, fast path.</li>
+      <li>Else (both sides have leftovers that didn't line up): build a <code>Map</code> from the remaining old fibers, keyed by <code>key</code> (or index, if keyless). Look each remaining new child up in it.</li>
+      <li>For every fiber placed (in either phase), run <code>placeChild</code>: track whether its OLD index is below the running "highest old index seen" — if so, flag it moved; either way, possibly raise the running mark.</li>
+      <li>Anything still left in the map after the loop was never claimed — delete it.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">09</span><h2>A Map of the State — the famous case</h2></div>
+
+  <p>Old order <code>[A, B, C]</code> → new order <code>[C, A, B]</code>. C genuinely moved from last to first; A and B didn't move relative to each other at all.</p>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>What actually changed (intuitively)</h4>
+      <pre class="tree">A(0) B(1) C(2)     ← old
+C(2) A(0) B(1)     ← new
+      <span class="caret">only C moved</span></pre>
+    </div>
+    <div class="railbox">
+      <h4>What the algorithm actually flags</h4>
+      <pre class="tree">C: stays  (becomes the mark: 2)
+A: <span class="new">MOVED</span>  (old index 0 &lt; mark 2)
+B: <span class="new">MOVED</span>  (old index 1 &lt; mark 2)</pre>
+    </div>
+  </div>
+
+  <div class="callout crazy">
+    <span class="ct">Crazy detail — real, verified, and counter-intuitive</span>
+    <p><code>verify.mjs</code>'s Scenario 4, real executed output: <code>movedKeys → ["A", "B"]</code>. Not <code>["C"]</code>. The item that visually moved is the one NOT flagged; the two that stayed put relative to each other ARE flagged. This is exactly the real, shipping behavior behind a commonly-reported "why did my whole list re-render when I only moved one item" question — reproduced here, not just described.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">09</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3><code>placeChild</code> — the entire "did this move" decision, in one function</h3>
+    <pre><code>function placeChild(newFiber, lastPlacedIndex, newIndex) {
+  newFiber.index = newIndex;
+  const current = newFiber.alternate;
+  if (current !== null) {
+    const oldIndex = current.index;
+    if (oldIndex < lastPlacedIndex) {
+      newFiber.flags |= Placement;   <span class="c">// moved backward past something already placed</span>
+      return lastPlacedIndex;
+    }
+    return oldIndex;                 <span class="c">// stays — raises the mark</span>
+  }
+  newFiber.flags |= Placement;       <span class="c">// brand new — always an insertion</span>
+  return lastPlacedIndex;
+}</code></pre>
+    <p>Verified byte-for-byte against real React's actual function of the same name (line-cited in DECISIONS.md). Three cases, no more: reused-and-in-order, reused-and-out-of-order, and brand-new.</p>
+
+    <h3>Why phase 1 bails on the FIRST mismatch, not the best one</h3>
+    <pre><code>for (; oldFiber !== null &amp;&amp; newIdx &lt; newChildren.length; newIdx++) {
+  if (oldFiber.index &gt; newIdx) break;
+  if (keyOf(newChildren[newIdx]) !== oldFiber.key) break;   <span class="c">// ← stop here, don't look ahead</span>
+  ...
+}</code></pre>
+    <p>This trades thoroughness for speed on the common case (nothing reordered): most updates never reach the <code>Map</code> phase at all. The cost of that trade is exactly Scenario 4 — a rearrangement that phase 1 can't resolve gets pushed into the map phase, where the high-water-mark heuristic, not a true minimal-moves computation, takes over.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">09</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Guarantee a minimal number of moves — Scenario 4 is direct proof this algorithm doesn't try to.</li>
+        <li>Actually move anything in a real DOM — <code>Placement</code> is a flag recorded now, acted on in Module 12.</li>
+        <li>Handle portals, fragments, or nested arrays as children — out of scope, matching this course's stated boundaries.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Reconcile an entire keyed array against its previous version, matching real React's actual output for insert/remove/reorder cases.</li>
+        <li>Predict, for any before/after pair of keyed lists, exactly which items get flagged <code>Placement</code> — including the non-obvious cases.</li>
+        <li>Explain precisely why keys are not optional once a list can reorder — Module 01's key-coercion and this module's <code>Map</code> lookup are the same mechanism, now load-bearing.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">09</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">=== Scenario 4: move last item (C) to the front — the famous case ===
+order: actual=["C","A","B"] expected=["C","A","B"] → PASS
+moved — C (the one that ACTUALLY moved) is NOT flagged; A and B ARE: actual=["A","B"] expected=["A","B"] → PASS
+
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result?</span>
+    <p>If Scenario 1 (no change) shows anything in <code>movedKeys</code>, double-check <code>placeChild</code>'s comparison direction — it should be <code>oldIndex &lt; lastPlacedIndex</code>, not <code>&lt;=</code>; using <code>&lt;=</code> would wrongly flag every item as moved even when nothing changed, since each item's old index equals the mark right after it's placed.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">09</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: old order <code>[A, B, C, D]</code>, new order <code>[B, C, D, A]</code> — A moved from front to back, B/C/D shifted forward but kept their relative order. Which items get flagged <code>Placement</code>?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>Only <code>A</code>. Trace it: B is placed first (new position 0) — old index 1, mark starts at 0, 1 is not &lt; 0, so B stays and raises the mark to 1. C placed next — old index 2, not &lt; 1, stays, mark→2. D placed — old index 3, not &lt; 2, stays, mark→3. Finally A — old index 0, and 0 <em>is</em> &lt; 3 — flagged. This is the mirror image of Scenario 4: moving one item from the <strong>front to the back</strong> is cheap under this heuristic (only that one item is flagged), while moving one item from the <strong>back to the front</strong> is expensive (everything else gets flagged). That asymmetry is a direct, provable consequence of scanning in a single fixed direction with a running maximum — not a coincidence, and not something either scenario's outcome could have avoided while keeping the algorithm a single forward pass.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">09</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Why doesn't real React just fix this with a proper LIS algorithm? It's a well-known technique.</summary>
+    <p>Per the real source comment quoted in DECISIONS.md, the stated reason is structural: fibers only have forward pointers (<code>child</code>/<code>sibling</code>/<code>return</code> — no <code>previousSibling</code>), which rules out the two-ended search a more thorough diff would want, and the team's own assessment was that optimizing further wasn't worth the added complexity for how rarely large reorders happen in practice relative to appends/removes/small in-place updates.</p>
+  </details>
+
+  <details>
+    <summary>Does using an index as a fallback key (when an item has no explicit key) fix the reordering problem?</summary>
+    <p>No — it actively defeats the entire point of keys. An index-based "key" changes meaning every time the list's order changes (the item now at index 0 might be a totally different logical item than whatever was at index 0 last render), so <code>updateFromMap</code>'s lookup-by-index will confidently "match" the wrong item to the wrong fiber whenever a reorder happens. This is why React warns about array-index keys specifically for lists that can reorder — the warning is describing exactly this module's map-phase lookup silently mismatching.</p>
+  </details>
+
+  <details>
+    <summary>In Scenario 3 (removing B from the middle), why didn't A or C get flagged, even though C's position number changed from 2 to 1?</summary>
+    <p>Because <code>placeChild</code> compares OLD index against the running mark, never new index against old index directly. C's old index was 2; when it's placed, the mark is still 0 (only A had been placed, and A's old index 0 wasn't below the mark either). 2 is not less than 0, so C stays. The DOM position it ends up in is a consequence of B's fiber simply no longer being in the sibling chain — nothing had to "move" C for that to happen once B disappears.</p>
+  </details>
+
+  <details>
+    <summary>What happens if two children have the same explicit key?</summary>
+    <p>This module's <code>Map</code>-based lookup (<code>existingChildren.set(key, fiber)</code>) means the second occurrence silently overwrites the first in the map — real React detects and warns about this exact situation (duplicate keys) precisely because it makes matching ambiguous; this course's simplified version doesn't reproduce the warning, only the underlying data structure that makes the collision possible.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">09</span><h2>What's Next</h2></div>
+  <p>You can now diff whole lists, not just single positions. But every reconciliation so far assumes work always needs to happen. Module 10 is the opposite move: proving a subtree can be skipped <em>entirely</em> — no diff, no fiber visit — when its props are reference-equal to last time. That's the bailout, and it's the reason "don't create new objects in render" is a real performance rule, not folklore.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_08_single_child/tutorial.html">← Module 08: The Single-Child Fast Path</a>
+  <a class="next" href="../module_10_bailouts/tutorial.html">Module 10: Bailouts &amp; Memoization →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p><code>reconcileChildrenArray</code> and <code>placeChild</code> were read directly, with line numbers, from real <code>react-dom@18.3.1</code> (<code>react-dom.development.js:13214-13242</code>, <code>13544-13709</code>) in <code>research_reconciliation/react-lab/node_modules/react-dom</code>, including the source's own comment explaining why a two-ended/LIS diff isn't used. The <code>Placement</code> flag value (<code>2</code>) was read from the same file's flag constants (line 4356-4358). The front-move behavior was produced by actually executing <code>verify.mjs</code>, not asserted from documentation.</p>
+</div>
+
+</div>
+</body>
+</html>
