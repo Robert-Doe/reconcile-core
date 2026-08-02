@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 07 · Yielding to the Browser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#C1611D; --accent-bg:#FBEEE0; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 3: The Work Loop</p>
+  <h1>Module 07<em>Yielding to the Browser</em></h1>
+  <p class="thesis">Module 06 made the work loop's stack depth constant. This module cashes that in: add one condition to the same loop, and it can stop mid-tree, hand control back, and pick up again later — proven with a real macrotask that genuinely runs in the gap.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p><span class="hi">while (next !== null &amp;&amp; !shouldYield())</span> — one added condition, checked before every single unit of work, is the entire difference between Module 06's loop and this one. Nothing else about <code>beginWork</code>/<code>completeUnitOfWork</code> changes.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_event_loop_yielding.html">P6 · The event loop &amp; yielding</a>
+    <a href="../prereqs/prereq_explicit_loop_vs_recursion.html">P3 · Explicit loop vs. recursion</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">07</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>Recall Module 06's relay runners, each carrying the baton one leg at a time. This module adds exactly one new rule to the relay: before starting each leg, a runner checks a stopwatch. If time's nearly up, they don't run their leg at all — they set the baton down at the checkpoint they're already standing at and step aside, letting anyone else who's waiting go first. Someone (possibly a different runner entirely) picks the baton back up later and continues from that exact checkpoint.</p>
+    <p>Nothing about how the relay itself works changed — legs are still run one at a time, the baton still marks "where we are" precisely. The only addition is permission to stop looking at the stopwatch and yield the track.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">07</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>Rendering a large tree via <code>renderRootConcurrent</code>:</p>
+    <ol>
+      <li><code>runChunk()</code> is called (synchronously, the first time).</li>
+      <li>A fresh <code>shouldYield</code> is created for this chunk (a fresh deadline, or in tests, a fresh counter) — <strong>never reused from a previous chunk.</strong></li>
+      <li><code>workLoopConcurrent(cursor, shouldYield)</code> runs Module 06's exact loop, but checks <code>shouldYield()</code> before every unit.</li>
+      <li>The moment <code>shouldYield()</code> returns <code>true</code>, the loop stops and returns whatever fiber it was about to process next — call it the new <code>cursor</code>.</li>
+      <li>If <code>cursor</code> is <code>null</code>, the whole tree is done. Otherwise, <code>schedule(runChunk)</code> — by default, <code>setTimeout(runChunk, 0)</code> — queues the next chunk and <strong>returns</strong>, genuinely giving up control.</li>
+      <li>Whatever else was waiting on the event loop (a click handler, a competing timer, a repaint) gets to run now, before <code>runChunk</code> is called again.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">07</span><h2>A Map of the State</h2></div>
+
+  <p>Real, executed output from <code>verify.mjs</code>'s Test 2 — a competing task queued before rendering, proven to run mid-render:</p>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>Timeline of real events</h4>
+      <ol class="stk">
+        <li><span>setTimeout(competingTask, 0)</span><span class="note">queued</span></li>
+        <li class="tgt"><span>runChunk() — chunk 1</span><span class="note">synchronous</span></li>
+        <li><span>setTimeout(runChunk, 0)</span><span class="note">chunk 2 queued</span></li>
+        <li class="tpl"><span>competingTask runs</span><span class="note">← the browser's turn</span></li>
+        <li><span>runChunk() — chunk 2</span></li>
+        <li><span>… 12 more chunks …</span></li>
+        <li><span>onComplete()</span><span class="note">tree fully built</span></li>
+      </ol>
+    </div>
+    <div class="railbox">
+      <h4>Real console output</h4>
+      <pre class="tree">Number of real setTimeout-scheduled
+chunks used: 14
+Competing setTimeout(fn, 0), queued
+before rendering, ran before our
+rendering finished: <span class="new">true</span></pre>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p>14 chunks for a 27-fiber tree — because Test 2's mock <code>shouldYield</code> deliberately yields after just 2 units per chunk, to force many real macrotask boundaries instead of relying on wall-clock timing (which would vary machine to machine). The <em>competing task ran before completion</em> line is the actual proof: it was queued once, before rendering even started, and by FIFO ordering of same-delay timers, it could only have run in the gap between our chunk 1 and chunk 2.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">07</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>One added condition</h3>
+    <pre><code><span class="c">// Module 06:</span>
+export function workLoopSync(rootFiber) {
+  let next = rootFiber;
+  while (next !== null) { next = performUnitOfWork(next); }
+  return rootFiber;
+}
+
+<span class="c">// Module 07 — the only difference is highlighted:</span>
+export function workLoopConcurrent(next, shouldYield) {
+  while (next !== null <span class="y">&amp;&amp; !shouldYield()</span>) {
+    next = performUnitOfWork(next);
+  }
+  return next;   <span class="c">// null = done; non-null = "resume from here"</span>
+}</code></pre>
+
+    <h3>The factory pattern — and the bug that made it necessary</h3>
+    <pre><code>function runChunk() {
+  const shouldYield = createShouldYield();   <span class="c">// FRESH every chunk</span>
+  cursor = workLoopConcurrent(cursor, shouldYield);
+  if (cursor === null) { onComplete(rootFiber); }
+  else { schedule(runChunk); }
+}</code></pre>
+    <p>Verified necessary the hard way — see the "Crazy detail" below.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">07</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Prioritize one update over another — every chunk here is treated equally. Real "lanes" (Track 2's A3) let a click handler's update jump ahead of a background data refresh.</li>
+        <li>Actually respond to real user input arriving mid-render and change course — this module proves control returns to the event loop, not that anything interesting happens with that returned control yet.</li>
+        <li>Commit anything — this is still pure tree-building, same as Module 06.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Pause a render at any fiber boundary and resume it correctly later, proven identical to an unyielded run.</li>
+        <li>Demonstrate, with a real competing macrotask (not a metaphor), that the browser genuinely gets a turn mid-render.</li>
+        <li>Explain exactly why a shared, stateful <code>shouldYield</code> across chunks is a real, not hypothetical, bug.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">07</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">After forced pause: cursor is null (fully done)? false
+Chunked-and-resumed tree === baseline tree: true
+
+Number of real setTimeout-scheduled chunks used: 14
+Competing setTimeout(fn, 0), queued before rendering, ran before our rendering finished: true
+
+All graded checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result — or a script that never finishes?</span>
+    <p>If <code>node verify.mjs</code> appears to hang, the near-certain cause (this course hit it directly) is a <code>shouldYield</code> being shared across chunks instead of recreated per chunk via <code>createShouldYield</code> — a counter or deadline that's already tripped makes every subsequent chunk do zero work and yield instantly, forever. Kill the process and check that every call site passes a <em>factory</em>, not a bare function.</p>
+  </div>
+
+  <div class="callout crazy">
+    <span class="ct">Crazy detail — this course's own hang, and how it was found</span>
+    <p>The first draft of <code>verify.mjs</code>'s Test 2 hung indefinitely — this exact document you're reading was blocked on a real Node process that had to be located (via a process list) and force-killed before the bug could be fixed. The cause: a single <code>shouldYield</code> closure, a call counter, was reused across every chunk instead of recreated per chunk. Chunk 1 legitimately did 2 units of work and yielded on its 3rd check. Chunk 2 resumed with the <em>same, already-tripped</em> counter — which immediately returned <code>true</code> again, before doing any work at all. Every chunk after that did the same: check, yield instantly, reschedule, forever. The fix was the <code>createShouldYield</code> factory now in the source. This is, unplanned, the single clearest real-world argument for why real React's Scheduler recomputes a fresh deadline every callback rather than checking one deadline computed once at the start of the whole render.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">07</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: if <code>schedule</code> were changed from <code>setTimeout(cb, 0)</code> to calling <code>cb()</code> <strong>directly, synchronously</strong> (no macrotask at all), would <code>workLoopConcurrent</code>'s pause-and-resume logic still be "correct" in the sense Test 1 checks? Would Test 2 still pass?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>Test 1 would still pass — the tree-correctness proof never depended on <em>when</em> chunks run relative to anything else, only that resuming from the returned cursor eventually reaches <code>null</code> and matches the unyielded tree. Test 2 would <strong>fail</strong>: calling <code>cb()</code> directly, synchronously, never actually returns control to the event loop between chunks — it's just a recursive function call wearing a "chunk" costume. The competing <code>setTimeout</code> task would never get a chance to run until the entire (synchronous, if reframed this way) render finished, exactly like Module 06's blocking <code>workLoopSync</code>. This is the precise, testable difference between "the code is organized into chunks" and "the browser actually gets a turn" — and it's why this module's `schedule` default specifically has to go through a real macrotask API.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">07</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Why setTimeout and not requestIdleCallback, which sounds more purpose-built for this?</summary>
+    <p><code>requestIdleCallback</code> isn't available in Node (this module's test environment) and has inconsistent browser support/timing characteristics that real React's team explicitly moved away from for exactly that reason — real Scheduler uses <code>MessageChannel</code> instead, for both of those reasons (universal availability, consistent firing). <code>setTimeout(fn, 0)</code> is the simplest option that's both real (a genuine macrotask) and available everywhere, which is why this module uses it as the default while documenting the real mechanism (Track 2 A3) separately.</p>
+  </details>
+
+  <details>
+    <summary>Does yielding mean React "checks for user input" during the gap?</summary>
+    <p>Not directly — yielding means control returns to the browser's event loop, and the event loop is what decides what runs next (a click handler, a timer, a repaint, anything queued). React doesn't poll for input; it simply stops holding the thread hostage long enough for whatever's already queued to get a turn. Module 07's proof (a competing <code>setTimeout</code>) demonstrates exactly this queued-callback mechanism, which is the same mechanism a real click handler waiting in the queue would benefit from.</p>
+  </details>
+
+  <details>
+    <summary>If a render is paused and never resumed, is anything left in a bad state?</summary>
+    <p>No — this is exactly Module 05's double-buffering guarantee doing its job. Everything this loop has built so far lives on the <code>workInProgress</code> side; <code>current</code> was never touched. An abandoned render just becomes garbage-collectable state that nothing ever pointed a "real" tree pointer at.</p>
+  </details>
+
+  <details>
+    <summary>Is 14 chunks for a 27-node tree realistic for real React?</summary>
+    <p>No — that number is an artifact of this module's deliberately aggressive test mock (yield after 2 units, to force many chunks deterministically without relying on wall-clock timing). Real React's actual default time budget is on the order of 5ms per chunk, which on ordinary hardware processes far more than 2 fiber updates before yielding. The "informational" run in <code>verify.mjs</code>, using a real <code>performance.now()</code>-based deadline, produces a different (and machine-dependent) chunk count — logged but deliberately not part of the graded assertions, for exactly that reason.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">07</span><h2>What's Next</h2></div>
+  <p>The loop can now build a tree from nothing, in pausable chunks. But every render so far has started from a bare, childless fiber — nothing here has ever compared "what's new" against "what was there last time." Module 08 introduces the first real diffing decision: when a fiber's type hasn't changed, update it in place instead of throwing it away — the single-child fast path that's the seed of every later reconciliation rule.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_06_work_loop/tutorial.html">← Module 06: The Unit-of-Work Loop</a>
+  <a class="next" href="../module_08_single_child/tutorial.html">Module 08: The Single-Child Fast Path →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p><code>workLoopConcurrent</code>'s check-before-process structure was read directly from real <code>react-dom@18.3.1</code> (<code>react-dom.development.js:26579-26584</code>). The <code>shouldYield</code>-comes-from-a-separate-package fact was confirmed by reading the actual <code>require('scheduler')</code> call and <code>Scheduler.unstable_shouldYield</code> assignment in the same file, and cross-checked against the real, installed <code>scheduler</code> package's own <code>scheduler-unstable_mock</code> build in <code>research_reconciliation/react-lab/node_modules/scheduler/cjs</code>. The event-loop-interleaving proof and the shared-counter bug were both produced by actually running <code>verify.mjs</code> — the hang was real, not illustrative.</p>
+</div>
+
+</div>
+</body>
+</html>
