@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 10 · Bailouts &amp; Memoization</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#6E7A2E; --accent-bg:#F1F3E4; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 4: Reconciliation Proper</p>
+  <h1>Module 10<em>Bailouts &amp; Memoization</em></h1>
+  <p class="thesis">Every module so far assumed a fiber's work needs doing. This module proves the opposite can happen: an entire subtree — not just one fiber, everything below it — can be skipped completely, and the proof isn't "render wasn't called," it's that nothing downstream was even touched.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p>The bailout check is <span class="hi">reference equality, not shallow equality</span>: <code>current.memoizedProps === pendingProps</code>. An object with identical values but a different reference does <strong>not</strong> qualify on its own — <code>memo</code> exists specifically to make it qualify, by substituting the old reference.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_reference_equality.html">P1 · Reference equality</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">10</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>An inspector re-certifying a building doesn't re-inspect every room every year. They check one thing first: is this the <em>exact same folder</em> of blueprints that was already certified — not a photocopy with identical contents, the literal same folder, same paperclip, same coffee stain? If yes, certification is instant: nothing downstream (the rooms, the wiring, the plumbing) gets a second look. If it's a new folder — even one that, word for word, says the same thing as the old one — full inspection, every room, from scratch.</p>
+    <p>A building owner who wants the fast path back has one option: hand the inspector the <em>same folder</em> next time, not a fresh copy. That's what <code>memo</code> does — it's not a smarter inspector, it's a filing clerk who checks a new folder against the old one first and, if they match word for word, quietly staples the OLD folder to the inspector's clipboard instead.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">10</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p><code>beginWorkWithBailout(current, workInProgress, renderComponent)</code>:</p>
+    <ol>
+      <li>Is this an update (<code>current !== null</code>)? Mounting never bails — there's nothing to compare against.</li>
+      <li>Is <code>current.memoizedProps</code> the <strong>exact same object</strong> as this render's <code>pendingProps</code>? Checked with <code>===</code>, not a value comparison.</li>
+      <li>Was there a scheduled update on this fiber anyway (e.g. a state change)? If so, no bailout — something local demands a re-render regardless of props.</li>
+      <li>All conditions met → <strong>bail</strong>: <code>workInProgress.child = current.child</code> — the exact same child fiber(s), not a clone, not a fresh visit. <code>renderComponent</code> is never called.</li>
+      <li>Any condition fails → do the real work: call <code>renderComponent</code>, let normal reconciliation (Modules 04/08/09) produce the new children.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">10</span><h2>A Map of the State</h2></div>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>Without <code>memo</code> — same values, different object</h4>
+      <pre class="tree">current.memoizedProps  { title: "x" }  (object #1)
+pendingProps           { title: "x" }  (object #2)
+
+shouldBailout(...)     <span class="new">false</span>
+  ← different reference, even though
+    every value is identical</pre>
+    </div>
+    <div class="railbox">
+      <h4>With <code>memo</code>'s substitution</h4>
+      <pre class="tree">resolveMemoProps(current, pendingProps)
+  → shallowEqual? YES
+  → returns object #1 (the OLD one)
+
+shouldBailout(current, <span class="new">object #1</span>)
+                        <span class="new">true</span>
+  ← NOW it's the same reference</pre>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p><code>verify.mjs</code>'s real output proves both halves of this in sequence, using the <em>same</em> <code>shouldBailout</code> function, unmodified: <code>withoutMemo</code> is <code>false</code>, <code>withMemo</code> is <code>true</code> — the only thing that changed between the two calls is which object reference was passed in.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">10</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>The bailout check — verified against real React's exact structure</h3>
+    <pre><code>export function shouldBailout(current, pendingProps, hasScheduledUpdate) {
+  if (current === null) return false;
+  const oldProps = current.memoizedProps;
+  if (oldProps !== pendingProps) return false;   <span class="c">// ← reference check, not value check</span>
+  if (hasScheduledUpdate) return false;
+  return true;
+}</code></pre>
+    <p>Verified against real React's actual condition (line-cited in DECISIONS.md): <code>if (oldProps !== newProps || hasContextChanged() || ...) { didReceiveUpdate = true; }</code> — same polarity, same reference operator.</p>
+
+    <h3>memo's real trick, quoted from React's own source comment</h3>
+    <pre><code>export function resolveMemoProps(current, nextProps, arePropsEqual = shallowEqual) {
+  if (current === null) return nextProps;
+  const prevProps = current.memoizedProps;
+  if (arePropsEqual(prevProps, nextProps)) {
+    return prevProps;   <span class="c">// ← "Reuse the previous props object,</span>
+  }                       <span class="c">//    like we would during a normal fiber bailout."</span>
+  return nextProps;
+}</code></pre>
+    <p>That comment is copied, verbatim, from real <code>react-dom.development.js</code> at the exact line this substitution happens. <code>memo</code> is not a rival bailout mechanism — it feeds the same one.</p>
+
+    <h3>The proof that nothing downstream was touched</h3>
+    <pre><code>if (shouldBailout(current, workInProgress.pendingProps, hasScheduledUpdate)) {
+  workInProgress.child = current.child;   <span class="c">// SAME reference — no clone, no visit</span>
+  workInProgress.memoizedProps = workInProgress.pendingProps;
+  return workInProgress.child;
+}</code></pre>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">10</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Track "a scheduled update" with any real priority system — modeled here as a plain boolean, not real React's lane bitmask (Track 2's A3 territory).</li>
+        <li>Bail out based on context changes — this course hasn't built a context mechanism at all.</li>
+        <li>Explain hooks-based memoization (<code>useMemo</code>/<code>useCallback</code>) — those memoize *values passed as props*, one level up from this module's concern, which is what happens once a fiber *receives* a possibly-new props object.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Explain precisely why "props look the same" and "React will skip this" are different claims, with a real counterexample.</li>
+        <li>Explain what <code>memo</code> mechanically does — and that it isn't magic, it's reference substitution feeding an existing check.</li>
+        <li>Prove, not assert, that a bailout touches zero fibers below the one it fires on.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">10</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (excerpt)</span>
+    <pre><code><span class="g">new object with identical VALUES → does NOT bail (reference differs): PASS
+resolveMemoProps returns the OLD reference (not the new object): PASS
+with memo's substitution: NOW it bails: PASS
+renderComponent was never called (bailed out): PASS
+workInProgress.child === current.child (SAME object, not cloned): PASS
+
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result?</span>
+    <p>If "different props object → renderComponent WAS called" fails, double-check you're passing a genuinely different object literal (not the same reference re-used by accident) as the second test's <code>pendingProps</code> — this whole module hinges on object identity, so a copy-paste that accidentally reuses a variable will silently break the contrast this test is built to show.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">10</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: a parent component does <code>&lt;Child data={{ id: 1 }} /&gt;</code> directly in its JSX, every render. Would wrapping <code>Child</code> in <code>memo</code> help it bail out, ever?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>No — and this is the single most common way people misuse <code>memo</code> and then conclude it "doesn't work." <code>{{ id: 1 }}</code> is a fresh object literal, created new on every single call to the parent's render function, no matter how many times its <em>values</em> happen to match. <code>memo</code>'s <code>shallowEqual</code> check would actually catch this correctly — <code>{id:1}</code> shallow-equals <code>{id:1}</code> — so in THIS specific case <code>memo</code> genuinely would help (`resolveMemoProps` would substitute the old reference and the bailout would fire). The much worse, common case is when the object contains a nested object, a function, or an array as one of its OWN values — shallow equality only checks one level deep, so `{ config: { id: 1 } }` twice will shallow-compare `config`'s two different inner objects by reference and fail, even though `memo` is doing exactly what it's supposed to.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">10</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Is this why "don't create new objects/arrays/functions inline in render" is a performance rule?</summary>
+    <p>Precisely this. `<Child style={{color:'red'}}>` builds a brand-new object every render — even wrapping `Child` in `memo` can't help, because the new object will never be reference-equal OR shallowly-equal-but-actually-different-in-a-way-that-matters to anything meaningful across renders in the way that matters for THIS specific check when it's the direct prop itself vs. nested. The rule isn't superstition; it's a direct, mechanical consequence of this module's `shouldBailout` requiring `===`.</p>
+  </details>
+
+  <details>
+    <summary>If bailing out reuses `current.child` by reference, and that child fiber still has an `alternate` pointing back at itself, is anything about double buffering violated?</summary>
+    <p>No — this is actually double buffering working exactly as designed. The reused child fiber's `alternate` still points at whatever it always pointed at; nothing about the swap-two-buffers mechanism from Module 05 cares whether a NEW workInProgress fiber was allocated for a given position this render. A bailout just means: for this position, this render, the answer to "what should workInProgress look like here" was "identical to current," so we didn't bother allocating a third state to represent that.</p>
+  </details>
+
+  <details>
+    <summary>Does a bailout mean the component's function never runs again, ever?</summary>
+    <p>No — it means it doesn't run THIS render. The very next render, if props genuinely change (a new, non-shallowly-equal object, or a scheduled state update fires), `shouldBailout` returns `false` again and the component renders normally. Bailouts are a per-render decision, re-evaluated every time, never a permanent "this component is frozen" state.</p>
+  </details>
+
+  <details>
+    <summary>Why does a scheduled update override the bailout even if props are unchanged?</summary>
+    <p>Because a fiber's own local state (Module 13's hooks) can change independently of what its parent passes in. If a component called `setState` internally, its next render needs to reflect that new state regardless of whether its props object happens to be the same reference as last time — bailing out in that case would mean the state update never visibly takes effect, which would be a real, user-visible bug, not an optimization.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">10</span><h2>What's Next</h2></div>
+  <p>Every reconciliation decision so far — reuse, replace, move, skip — has only ever recorded intentions on fibers (<code>flags</code>, <code>deletions</code>). None of it has touched a real DOM node yet. Module 11 collects all of those recorded intentions into a single, ordered effect list, without a second tree walk — the last step before Module 12 finally calls <code>appendChild</code> for real.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_09_keyed_diff/tutorial.html">← Module 09: Keyed List Diffing</a>
+  <a class="next" href="../module_11_effect_list/tutorial.html">Module 11: The Effect List →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p>The bailout condition and its structure were read directly, with line numbers, from real <code>react-dom@18.3.1</code>'s actual <code>beginWork</code> (<code>react-dom.development.js:21563-21583</code>). <code>shallowEqual</code> was transcribed byte-for-byte from the same file (lines 8131-8157). <code>memo</code>'s real reference-substitution mechanism, including its source comment (quoted verbatim in this module's code and DECISIONS.md), was read from lines 19407-19428. All sixteen checks were produced by actually executing <code>verify.mjs</code> against this course's own implementation.</p>
+</div>
+
+</div>
+</body>
+</html>
