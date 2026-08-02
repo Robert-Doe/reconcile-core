@@ -1,0 +1,57 @@
+/* styles.css - dark theme matching the main lab's aesthetic. */
+:root{
+  --bg:#0b0f1a; --bg2:#111827; --bg3:#1a2235; --card:#141c2e; --border:#1e3a5f;
+  --gold:#f5c842; --cyan:#38bdf8; --teal:#2dd4bf; --red:#f87171; --green:#4ade80;
+  --text:#e2e8f0; --muted:#7a9bbf; --code:#060d1a;
+  --mono:'Source Code Pro',ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.6}
+.app{max-width:1000px;margin:0 auto;padding:24px}
+.kicker{font-family:var(--mono);color:var(--teal);text-transform:uppercase;letter-spacing:.12em;font-size:.72rem}
+h1{font-size:1.6rem;margin:.2rem 0 0;color:#fff}
+h2{color:#fff;border-bottom:2px solid var(--border);padding-bottom:.3rem;margin-top:2rem}
+h3{margin:0;color:#fff;font-size:1.05rem}
+a{color:var(--cyan)}
+code{font-family:var(--mono);background:var(--bg3);color:#c3e88d;padding:1px 5px;border-radius:4px;font-size:.85em}
+.small{font-size:.78rem;white-space:pre-wrap;word-break:break-all}
+pre.src{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:10px 12px;
+  overflow-x:auto;font-family:var(--mono);font-size:.8rem;color:#9fb3c8;margin:8px 0}
+.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;
+  border-top:5px solid var(--red);padding-top:16px}
+.controls{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.toggle{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);
+  border-radius:999px;padding:6px 14px;cursor:pointer;font-size:.9rem}
+.toggle.on{border-color:var(--green);color:var(--green)}
+.toggle.off{border-color:var(--red);color:var(--red)}
+.tt-badge{font-size:.78rem;color:var(--muted)}
+.monitor{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--gold);
+  border-radius:8px;padding:12px 16px;margin:16px 0}
+.monitor .clear{margin-left:12px;font:inherit;font-size:.78rem;background:var(--bg3);color:var(--text);
+  border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer}
+.note{color:var(--muted);font-size:.85rem;margin:.4rem 0 0}
+.intro{color:var(--muted)}
+.demo{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin:16px 0}
+.demo-head{display:flex;align-items:center;gap:10px}
+.demo-id{font-family:var(--mono);background:var(--red);color:#0b0f1a;border-radius:6px;padding:1px 8px;font-weight:700;font-size:.75rem}
+.sink{margin-left:auto;font-family:var(--mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;
+  padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+.field{display:flex;flex-direction:column;gap:4px;margin:10px 0}
+.field span{font-size:.8rem;color:var(--muted)}
+.field input{font-family:var(--mono);font-size:.82rem;background:var(--code);color:#e6edf3;
+  border:1px solid var(--border);border-radius:6px;padding:8px 10px}
+.render-box{background:#fff;color:#111;border-radius:8px;padding:10px 12px;margin:8px 0;min-height:36px}
+.render-box a{color:#0a58ca}
+.demo-explain{color:var(--muted);font-size:.86rem}
+.err{color:var(--red);font-weight:600}.ok{color:var(--green)}
+table.mini,table.eval{border-collapse:collapse;width:100%;font-size:.84rem;margin:8px 0}
+table.mini td,table.eval td,table.eval th{border:1px solid var(--border);padding:6px 8px;text-align:left}
+table.eval th{background:var(--bg3);color:var(--gold)}
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin:24px 0}
+.metrics{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
+.metric{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 16px;text-align:center;min-width:120px}
+.metric .v{font-family:var(--mono);font-size:1.6rem;color:var(--cyan)}
+.metric .l{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.err.render-box,.render-box .err{color:#b00020}
+.foot{margin-top:32px;padding-top:14px;border-top:1px solid var(--border);color:var(--muted);font-size:.82rem}

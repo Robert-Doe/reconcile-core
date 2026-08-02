@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>React XSS Surface + In-Browser Fallback Lab</title>
+<!--
+  NOTE (Track F5): to enforce Trusted Types you would send this header/meta:
+  <meta http-equiv="Content-Security-Policy"
+        content="require-trusted-types-for 'script'; trusted-types app#html">
+  It is left OFF by default so the baseline (vulnerable) components execute and
+  you can A/B the fallback. Uncomment to feel enforcement (Chromium only).
+-->
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.jsx"></script>
+</body>
+</html>

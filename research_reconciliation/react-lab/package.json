@@ -1,0 +1,21 @@
+{
+  "name": "react-xss-fallback-lab",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Runnable React lab for Tracks E & F: intentionally-vulnerable components + an in-browser fallback (Trusted Types policy + fixed-point sanitizer) + a live differential harness. Localhost study only.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "evaluate": "node scripts/evaluate.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}
