@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 02 · JSX Desugaring by Hand</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#1F7A6C; --accent-bg:#E4F3EF; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 1: Elements</p>
+  <h1>Module 02<em>JSX Desugaring by Hand</em></h1>
+  <p class="thesis">JSX is not the API. It's the one part of this entire course that never runs in a browser — it's erased before your code ships, by a compiler. This module proves that, using the actual compiler this repo's dev server runs, on real source, with the real compiled output printed in full below.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p><code>&lt;div className="card"&gt;{children}&lt;/div&gt;</code> is erased at build time into <span class="hi">jsx("div", { className: "card", children })</span> — a plain function call. And it is <em>not</em> <code>React.createElement</code> by default anymore: modern tooling emits calls to <code>jsx</code>/<code>jsxs</code> from <code>react/jsx-runtime</code>, a different calling convention Module 01 didn't cover.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_bundling_modules.html">P7 · What "after bundling" means</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">02</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>JSX is a court stenographer's shorthand. In the courtroom, someone says "the witness nodded and said 'yes.'" The stenographer never writes that sentence — they write compressed shorthand symbols, fast, in the moment. Nobody in the room reads shorthand at trial. Later, an entirely separate transcription pass expands every symbol back into full sentences for the official record.</p>
+    <p>JSX is the shorthand. The compiler (in this repo: esbuild, the same one Vite's dev server calls) is the transcriptionist. By the time your code runs in a browser, <strong>no JSX exists anywhere</strong> — only the expanded, boring, ordinary function calls it was shorthand for. If you've only ever read the shorthand, this module is where you sit down with the transcript.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">02</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>From source to running code, for <code>&lt;span&gt;only one child&lt;/span&gt;</code>:</p>
+    <ol>
+      <li>Your editor/bundler feeds the <code>.jsx</code> source text to a compiler. In this repo: Vite hands it to esbuild.</li>
+      <li>The compiler counts the JSX element's children <strong>in the source text, at compile time</strong> — before anything runs.</li>
+      <li>Zero or one child → the compiler emits a call to <code>jsx(type, props)</code>. Two or more → it emits a call to <code>jsxs(type, props)</code>, with <code>props.children</code> already built as an array.</li>
+      <li>The compiler also inserts <code>import { jsx, jsxs } from "react/jsx-runtime"</code> at the top of the file automatically — you never write this import yourself.</li>
+      <li>At <em>run</em> time (not compile time), <code>jsx</code>/<code>jsxs</code> execute: extract key/ref, copy remaining props, backfill <code>defaultProps</code>, return the same <code>{ $$typeof, type, key, ref, props }</code> shape Module 01 built.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">03</span><h2>A Map of the State — the Real Compiled Output</h2></div>
+
+  <p>This is not a paraphrase. This is <code>esbuild.transformSync()</code>'s actual return value, for real JSX source, using the exact <code>jsx: 'automatic'</code> setting this repo's <code>vite.config.js</code> implies via <code>@vitejs/plugin-react</code>'s default:</p>
+
+  <div class="io">
+    <span class="lab">Input — real .jsx source</span>
+    <pre><code>export function Greeting({ name }) {
+  return (
+    &lt;div className="card"&gt;
+      &lt;h1&gt;Hello, {name}&lt;/h1&gt;
+      &lt;p&gt;welcome&lt;/p&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+    <span class="lab">Output — esbuild's real, unmodified compiled code</span>
+    <pre><code><span class="y">import { jsx, jsxs } from "react/jsx-runtime";</span>
+function Greeting({ name }) {
+  return /* @__PURE__ */ <span class="g">jsxs</span>("div", { className: "card", children: [
+    /* @__PURE__ */ <span class="g">jsxs</span>("h1", { children: [
+      "Hello, ",
+      name
+    ] }),
+    /* @__PURE__ */ <span class="g">jsx</span>("p", { children: "welcome" })
+  ] });
+}</code></pre>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p>Notice <code>&lt;div&gt;</code> and its immediate <code>&lt;h1&gt;</code> both compile to <code>jsxs</code> (they have 2 and 2 children respectively — the div has an h1 and a p; the h1 has "Hello, " and <code>{name}</code>), while <code>&lt;p&gt;</code> compiles to <code>jsx</code> (exactly one child, the string <code>"welcome"</code>). No import statement told the compiler which to use — it counted, per element, in your source text.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">04</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>One implementation, two exported names</h3>
+    <pre><code><span class="c">// jsx.js</span>
+export function jsx(type, config, maybeKey) {
+  return jsxImpl(type, config, maybeKey);
+}
+export function jsxs(type, config, maybeKey) {
+  return jsxImpl(type, config, maybeKey);   <span class="c">// identical body</span>
+}</code></pre>
+    <p>Verified against real React's own source: <code>react-jsx-runtime.development.js</code> literally assigns <code>var jsx = jsxWithValidationDynamic; var jsxs = jsxWithValidationStatic;</code> — two named bindings, functionally the same core path today. We're not cutting a corner by making them identical; real React ships them identical too.</p>
+
+    <h3>Children are pre-assembled, not counted at runtime</h3>
+    <p>Compare Module 01's <code>createElement(type, config, ...children)</code> — which received children as <em>separate arguments</em> and counted them — against this module's <code>jsx(type, config, maybeKey)</code>, which receives exactly three arguments no matter how many JSX children there were, because <code>config.children</code> was already built by the compiler. This is the load-bearing difference between the classic and automatic JSX runtimes, proven directly by the "Dispatch proof" run below.</p>
+  </div>
+
+  <div class="io">
+    <span class="lab">Run It's actual output — the dispatch proof</span>
+    <pre><code>1-child compiles to:    const el = <span class="g">jsx</span>("p", { children: "only one" });
+3-children compiles to: <span class="g">jsxs</span>("ul", { children: [...] })
+1-child uses jsx() not jsxs(): true
+3-children uses jsxs(): true</code></pre>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">05</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Write actual <code>.jsx</code> files and have them "just work" in a browser — you still need a compiler step, which this module invokes programmatically, not as a build pipeline.</li>
+        <li>Explain <em>why</em> the classic <code>React.createElement</code> transform still exists in older codebases/docs — out of scope; we only build the modern automatic runtime real tooling defaults to today.</li>
+        <li>Walk or diff any of this — still just element construction, one layer up from Module 01.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Take real <code>.jsx</code> source, compile it with the exact tool this repo's dev server uses, and predict the output.</li>
+        <li>Explain, correctly, why a given JSX element compiles to <code>jsx(...)</code> vs <code>jsxs(...)</code> — by child count in source, not import choice.</li>
+        <li>Recognize that <code>import { jsx, jsxs } from "react/jsx-runtime"</code> at the top of compiled output is compiler-inserted, never hand-written.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">06</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (last lines)</span>
+    <pre><code><span class="g">[Greeting] match: true
+[SingleChild] match: true
+
+=== Dispatch proof ===
+1-child uses jsx() not jsxs(): true
+3-children uses jsxs(): true
+
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result?</span>
+    <p>If esbuild can't be found, confirm <code>research_reconciliation/react-lab/node_modules/esbuild</code> exists (run <code>npm install</code> there first — the script requires it from that path deliberately, to use the exact same compiler version this repo's Vite dev server does, not a separately-installed copy that might differ). If the two outputs don't match and it's not the field set you expected, re-read the "Crazy detail" below before assuming a bug — the first draft of this module's own verification script failed for exactly that reason.</p>
+  </div>
+
+  <div class="callout crazy">
+    <span class="ct">Crazy detail — this course's own verification script failed the first time</span>
+    <p>When this module was built, the first run of <code>verify.mjs</code> reported <code>match: false</code> for the nested <code>Greeting</code> case, while the flat <code>SingleChild</code> case passed. The cause: the comparison function stripped real React's dev-only <code>_owner</code>/<code>_store</code> fields only at the <em>top level</em> of the element, not recursively — so a top-level match still failed because the <em>nested</em> <code>h1</code>/<code>p</code> children (elements themselves) still carried those extra fields untouched. Fixing the comparison to recurse through <code>props.children</code> made it pass. This is left in the DECISIONS.md and here on purpose: verifying against real output catches real mistakes, including in the verification code itself — that's the entire point of running it instead of asserting it.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">07</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: a component returns <code>&lt;>{a}{b}{c}&lt;/></code> — a Fragment with three expression children. Does this compile to <code>jsx</code> or <code>jsxs</code>? And separately — does it matter, at the level this course cares about, whether it's a Fragment or a <code>div</code>?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>Three children, so <code>jsxs</code> — the compiler counts children in the source regardless of what <code>type</code> is; a Fragment is just <code>type = Symbol.for('react.fragment')</code> instead of a string, but it flows through the identical <code>jsx</code>/<code>jsxs</code> call machinery. The dispatch rule is entirely about child count, never about which tag/type is being created. This is also why <code>jsxImpl</code> in <code>jsx.js</code> never inspects <code>type</code> except to look up <code>defaultProps</code> — everything else it does is type-agnostic.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">08</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>I've read that JSX compiles to <code>React.createElement</code>. Was that ever true, and is it still?</summary>
+    <p>It was and, with the "classic" runtime setting, still is — some tools still default to it or can be configured to. But every current default (Create React App's newer templates, Vite + <code>@vitejs/plugin-react</code>, Next.js) uses the "automatic" runtime this module builds, which emits <code>jsx</code>/<code>jsxs</code> from <code>react/jsx-runtime</code> instead, and does not require you to have <code>React</code> in scope at all (no more <code>import React from 'react'</code> just to use JSX). Module 01's <code>createElement</code> isn't wrong — it's the older convention, still shipped, no longer what a fresh JSX file compiles to by default.</p>
+  </details>
+
+  <details>
+    <summary>Why does the compiler bother with two functions (<code>jsx</code>/<code>jsxs</code>) if they do the same thing right now?</summary>
+    <p>Per real React's own source comment (quoted in DECISIONS.md), it's forward-looking: shipping the distinction now means a future React version can specialize <code>jsxs</code>'s implementation to skip work that's only safe when children are a known-static list, without a breaking change to the call sites. You're seeing an API designed for an optimization that hasn't landed yet.</p>
+  </details>
+
+  <details>
+    <summary>Does this mean JSX and <code>createElement</code> produce genuinely incompatible elements?</summary>
+    <p>No — <code>verify.mjs</code>'s field comparison shows the exact same element shape (<code>$$typeof</code>, <code>type</code>, <code>key</code>, <code>ref</code>, <code>props</code>) comes out either way. What differs is only the calling convention <em>getting there</em> (varargs + runtime counting vs. pre-built props + compile-time dispatch), never the resulting data.</p>
+  </details>
+
+  <details>
+    <summary>If I never write JSX and always call <code>jsx()</code>/<code>createElement()</code> myself, am I missing anything?</summary>
+    <p>Not for anything this course covers. JSX is purely an authoring convenience erased before runtime — every module from here on operates on the element/fiber data, which is identical either way. Real component libraries occasionally hand-call <code>jsx()</code> directly (skipping JSX) for exactly this reason: there's no capability gap, only an ergonomics one.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">09</span><h2>What's Next</h2></div>
+  <p>Elements are done — you've built the exact data shape real React produces, two different ways, both verified against the real package. Module 03 stops treating elements as the end of the story and starts building the structure that actually gets <em>walked</em>: the fiber tree, held together by nothing but <code>child</code>/<code>sibling</code>/<code>return</code> pointers (see <a href="../prereqs/prereq_linked_list_tree.html">P2</a>). Elements are data about intention; fibers are where that intention gets a durable place to live across renders.</p>
+</section>
+
+<div class="modnav">
+  <a href="../module_01_elements/tutorial.html">← Module 01: createElement &amp; the Element Shape</a>
+  <a class="next" href="../module_03_fiber_node/tutorial.html">Module 03: The Fiber Node &amp; Linked-List Tree →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p>Compiled output produced by the real <code>esbuild</code> package installed at <code>research_reconciliation/react-lab/node_modules/esbuild</code> (the same compiler Vite's dev server invokes for this repo's React app), using <code>jsx: 'automatic'</code>, <code>jsxImportSource: 'react'</code> — matching <code>@vitejs/plugin-react</code>'s default given this repo's <code>vite.config.js</code>. The <code>jsx</code>/<code>jsxs</code> identical-implementation claim, the key-precedence order, and the absence of runtime child-counting were read directly from <code>react@18.3.1</code>'s <code>react-jsx-runtime.development.js</code> (functions <code>jsxDEV</code>, and the <code>jsx</code>/<code>jsxs</code> variable assignments near the file's end) and confirmed by executing <code>verify.mjs</code> against the real package.</p>
+</div>
+
+</div>
+</body>
+</html>
