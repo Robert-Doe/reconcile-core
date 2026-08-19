@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Module 01 · createElement &amp; the Element Shape</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+<style>:root{ --accent:#B5652D; --accent-bg:#F7ECE1; }</style>
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Track 1 · Phase 1: Elements</p>
+  <h1>Module 01<em>createElement &amp; the Element Shape</em></h1>
+  <p class="thesis">Before there is a "virtual DOM," before there is any tree to reconcile, there is one function that returns one plain object. This module builds it — and proves, by running our version against real React 18.3.1 side by side, that a React element is nothing more than that.</p>
+
+  <div class="therule">
+    <span class="lbl">The whole claim, once — everything else is consequence</span>
+    <p><span class="hi">createElement(type, props, ...children)</span> returns a plain, inert JS object — <code>{ $$typeof, type, key, ref, props }</code> — with no connection to the DOM, no rendering behavior, and no lifecycle. It is data. Nothing runs because you called it.</p>
+  </div>
+
+  <div class="tags">
+    <a href="../prereqs/prereq_reference_equality.html">P1 · Reference equality</a>
+    <a href="../prereqs/prereq_bundling_modules.html">P7 · What "after bundling" means</a>
+  </div>
+</header>
+
+<section class="mod" id="s01">
+  <div class="modhead"><span class="modnum">01</span><h2>The Big Analogy</h2></div>
+
+  <div class="analogy">
+    <p>A React element is a work order, not a finished piece of furniture. Picture a form a customer fills out at a furniture shop's counter: "type: chair," "props: { color: red, legs: 4 }," "children: [a cushion work-order]." The clerk who takes this form does not build anything. They don't even check if red chairs with four legs are physically buildable. The form is just ink on paper — data describing an intention.</p>
+    <p>The actual carpenter (Module 12's commit phase) is a different person entirely, working from a different pile of paperwork (the fiber tree, Module 03+), possibly hours later. Right now, in this module, we are only building the form — and proving that filling it out twice with the same handwriting produces two different pieces of paper, even if every word on them matches.</p>
+  </div>
+</section>
+
+<section class="mod" id="s02">
+  <div class="modhead"><span class="modnum">02</span><h2>What Happens, Step by Step</h2></div>
+
+  <div class="spec">
+    <p>Calling <code>createElement('div', { className: 'x' }, 'hello')</code>:</p>
+    <ol>
+      <li>An empty <code>props</code> object is created.</li>
+      <li>If a second argument (<code>config</code>) was passed and isn't <code>null</code>: pull <code>ref</code> and <code>key</code> out of it into their own variables (never into <code>props</code>), then copy every <em>other</em> own-property of <code>config</code> into <code>props</code>.</li>
+      <li>Count the remaining arguments (the children). Zero → <code>props.children</code> stays <code>undefined</code>. Exactly one → <code>props.children</code> is that one value, unwrapped. Two or more → <code>props.children</code> is an array of all of them.</li>
+      <li>If <code>type</code> has a <code>defaultProps</code> object, backfill any prop that is exactly <code>undefined</code> (not just missing) from it.</li>
+      <li>Return a new plain object: <code>{ $$typeof: Symbol.for('react.element'), type, key, ref, props }</code>.</li>
+    </ol>
+    <p>That's the entire function. No DOM API is touched. No global state is read or written.</p>
+  </div>
+</section>
+
+<section class="mod" id="s03">
+  <div class="modhead"><span class="modnum">03</span><h2>A Map of the State</h2></div>
+
+  <p>Calling <code>createElement('p', null, 'text before ', createElement('b', null, 'bold'), ' text after')</code> produces one object with another object nested inside its <code>props.children</code> array — not a tree walker's tree yet, just JS's own object nesting:</p>
+
+  <div class="rail">
+    <div class="railbox">
+      <h4>Outer element</h4>
+      <pre class="tree">{
+  $$typeof: Symbol(react.element)
+  type: "p"
+  key: null
+  ref: null
+  props: {
+    children: [
+      "text before ",
+      <span class="new">{ type: "b", props: {…} }</span>  <span class="caret">← same object</span>
+      " text after"
+    ]
+  }
+}</pre>
+    </div>
+    <div class="railbox">
+      <h4>The nested element, by itself</h4>
+      <pre class="tree">{
+  $$typeof: Symbol(react.element)
+  type: "b"
+  key: null
+  ref: null
+  props: {
+    children: "bold"
+  }
+}</pre>
+    </div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Brain power</span>
+    <p><code>outer.props.children[1] === inner</code> is <code>true</code> — the <em>exact same reference</em> (see <a href="../prereqs/prereq_reference_equality.html">P1</a>), not a copy. Nothing about "nesting" here is special machinery. It's the same thing that happens when you put one plain object inside another object's array field, because that's literally what it is.</p>
+  </div>
+</section>
+
+<section class="mod" id="s04">
+  <div class="modhead"><span class="modnum">04</span><h2>The Code, Explained</h2></div>
+
+  <div class="spec">
+    <h3>The tag that can't be forged</h3>
+    <pre><code><span class="c">// createElement.js</span>
+export const REACT_ELEMENT_TYPE = Symbol.<span class="y">for</span>('react.element');</code></pre>
+    <p>Verified identical to real React's source at <code>react.development.js:32</code>. Using <code>Symbol.for</code> (the <em>global</em> symbol registry) rather than plain <code>Symbol()</code> is deliberate: it's the one value on Earth that <code>JSON.parse</code> can never produce, which is exactly why it's safe to trust <code>el.$$typeof === REACT_ELEMENT_TYPE</code> as proof "this came from a real <code>createElement</code> call," even if the object arrived from, say, a server response an attacker partially controls.</p>
+
+    <h3>Children collapse — the part everyone gets wrong from memory</h3>
+    <pre><code>const childrenLength = children.length;
+if (childrenLength === 1) {
+  props.children = children[0];       <span class="c">// bare value, not [value]</span>
+} else if (childrenLength > 1) {
+  props.children = children;          <span class="c">// real array</span>
+}</code></pre>
+    <p>This asymmetry is verified against real React by <code>verify.mjs</code>'s "span... one text child" and "ul, three li children" cases, matching byte-for-byte. It is why <code>props.children</code> in a real component can be a bare string <em>or</em> an array depending on how many children were written — any code (including yours, later, in Module 09) that assumes it's "always an array" will break on the single-child case.</p>
+
+    <h3>Key coercion</h3>
+    <pre><code>if (hasValidKey(config)) key = '' + config.key;</code></pre>
+    <p>A number key and a string key that print the same become the same key. This isn't cosmetic — Module 09's array diff compares keys for equality, and <code>1 === "1"</code> is <code>false</code> in JS. Coercing here means "same key" can never silently fail later because of a type mismatch nobody intended.</p>
+  </div>
+</section>
+
+<section class="mod" id="s05">
+  <div class="modhead"><span class="modnum">05</span><h2>Limits — What You Cannot Do Yet</h2></div>
+
+  <div class="compare">
+    <div class="cant">
+      <h5>Can't do yet</h5>
+      <ul>
+        <li>Render anything to a screen — there is no DOM node anywhere in this module.</li>
+        <li>Update anything — there's no concept of "last time" to compare against.</li>
+        <li>Walk a tree — nested elements sit inside <code>props.children</code>, but nothing here traverses that structure. That's Module 03.</li>
+        <li>Handle function components — <code>type</code> can be a function, but nobody calls it. It's stored, not invoked.</li>
+      </ul>
+    </div>
+    <div class="can">
+      <h5>Can do</h5>
+      <ul>
+        <li>Build arbitrarily deep nested element structures with plain function calls.</li>
+        <li>Distinguish a real element from a look-alike object via <code>isElement</code>.</li>
+        <li>Reason correctly about <code>props.children</code>'s shape (bare value vs. array) for any input.</li>
+        <li>Predict exactly what real <code>React.createElement</code> would return, for the same call — verified, not assumed.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="mod" id="s06">
+  <div class="modhead"><span class="modnum">06</span><h2>Run It</h2></div>
+
+  <div class="io">
+    <span class="lab">Exact command, from this folder</span>
+    <pre><code>node verify.mjs</code></pre>
+    <span class="lab">Expected output (last lines)</span>
+    <pre><code><span class="g">[nested] outer.props.children[1] === inner: true
+[nested] isElement(inner): true
+[nested] isElement("plain string"): false
+[nested] typeof REACT_ELEMENT_TYPE: symbol Symbol(react.element)
+
+All checks PASSED.</span></code></pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Getting a blank or broken result?</span>
+    <p>If you see <code>SyntaxError: Cannot use import statement outside a module</code>, you're running this file directly with a Node version/config that defaults to CommonJS. This folder is covered by <code>../package.json</code>'s <code>"type": "module"</code> — run <code>node verify.mjs</code> from <em>inside</em> <code>module_01_elements/</code>, don't copy just <code>createElement.js</code> elsewhere without that file. If you see a module-resolution error for <code>react</code>, confirm <code>research_reconciliation/react-lab/node_modules</code> exists — run <code>npm install</code> in that folder first.</p>
+  </div>
+</section>
+
+<section class="mod" id="s07">
+  <div class="modhead"><span class="modnum">07</span><h2>Brain Exercise</h2></div>
+
+  <p>Before reading on: <code>createElement('div', { key: 1 })</code> and <code>createElement('div', { key: "1" })</code> — do they produce elements with <code>===</code>-equal <code>key</code> fields? And separately: are the two returned <em>elements</em> (the whole objects) <code>===</code> to each other?</p>
+
+  <details>
+    <summary>Work it out, then check</summary>
+    <p>Their <code>key</code> fields are equal: both coerce to the string <code>"1"</code>, and <code>"1" === "1"</code> is <code>true</code>. But the two <em>elements</em> are two separate object literals — per <a href="../prereqs/prereq_reference_equality.html">P1</a>, object equality is by reference, and <code>createElement</code> returns a fresh object every call. So <code>el1 === el2</code> is <code>false</code>, even though every field you'd print from them matches. This is exactly the gap keys are built to bridge in Module 09: the diff can't use <code>===</code> on the element itself (always false across renders), so it uses the <em>key field</em> as a stand-in identity instead.</p>
+  </details>
+</section>
+
+<section class="mod" id="s08">
+  <div class="modhead"><span class="modnum">08</span><h2>There Are No Dumb Questions</h2></div>
+
+  <details>
+    <summary>Is <code>props.children</code> always going to be a headache, given it's sometimes a string, sometimes an array, sometimes undefined?</summary>
+    <p>Yes, and real React's own internal code deals with this by routing almost everything through one normalizing helper (<code>React.Children.map</code>/<code>forEach</code>, or internally <code>mapChildren</code>) before treating children as a list. This course does the same starting in Module 04 — we normalize once, at the boundary, rather than have every later module re-handle three possible shapes.</p>
+  </details>
+
+  <details>
+    <summary>Why does <code>type</code> get to be either a string ("div") or a function (a component)? Isn't that two different things pretending to be one field?</summary>
+    <p>It genuinely is two different things, and Module 04 is where the fork happens: a string <code>type</code> means "this becomes a real DOM node eventually," and a function <code>type</code> means "call this function to find out what element(s) it produces instead." <code>createElement</code> itself doesn't need to know the difference — it just stores whatever you gave it. The interpretation is entirely the mount phase's job.</p>
+  </details>
+
+  <details>
+    <summary>If elements are just plain objects, could I build one by hand with <code>{ type: 'div', props: {} }</code> and skip <code>createElement</code> entirely?</summary>
+    <p>You could build an object with those fields, but it would fail <code>isElement()</code>, because it's missing the unforgeable <code>$$typeof</code> Symbol — which you cannot type as a JS literal from outside this module, since you'd need a reference to the exact same <code>Symbol.for('react.element')</code> value. That's the entire point: the shape is copyable, the tag is not.</p>
+  </details>
+
+  <details>
+    <summary>Where did <code>_owner</code> and <code>_store</code> go? Real React's output had them.</summary>
+    <p>Cut on purpose (see <a href="DECISIONS.md">DECISIONS.md</a>) — they're dev-mode-only bookkeeping (which component created this element; whether it's been validated) with zero effect on reconciliation. Every later module in this course would ignore them anyway.</p>
+  </details>
+
+  <details>
+    <summary>This seems like too little to call a "virtual DOM." Where's the actual DOM-like structure?</summary>
+    <p>There isn't one yet, and that's the point of stopping here. An element doesn't know it will ever touch a screen. The "virtual DOM" as a walkable, stateful tree doesn't exist until Module 03's fiber shape and Module 04's mount pass turn this inert data into something with parent/child/sibling relationships and a lifecycle. This module is deliberately smaller than "virtual DOM" — it's the atom, not the tree.</p>
+  </details>
+</section>
+
+<section class="mod" id="s09">
+  <div class="modhead"><span class="modnum">09</span><h2>What's Next</h2></div>
+  <p>You now have a function that produces the exact same inert data shape real React does. Module 02 takes one step backward in the pipeline you'll actually use day to day: JSX. You'll run real JSX through Babel and prove, by diffing real compiler output against hand-written <code>createElement</code> calls, that JSX is nothing but syntax sugar for exactly this function — no new capability, no hidden magic, one more compiler pass standing between what you write and what you just built.</p>
+</section>
+
+<div class="modnav">
+  <a href="../prerequisites.html">← Prerequisites</a>
+  <a class="next" href="../module_02_jsx_desugar/tutorial.html">Module 02: JSX Desugaring by Hand →</a>
+</div>
+
+<div class="colophon">
+  <h3>Colophon &amp; provenance</h3>
+  <p>Written against <code>react@18.3.1</code> as actually installed in <code>research_reconciliation/react-lab/node_modules/react</code> (this repository). The element shape, <code>REACT_ELEMENT_TYPE</code> value, children-collapse rule, key coercion, and <code>defaultProps</code> gating were all read directly from <code>cjs/react.development.js</code> (functions <code>createElement</code> and <code>ReactElement</code>) and cross-checked by running <code>verify.mjs</code> against the real package — not asserted from memory.</p>
+</div>
+
+</div>
+</body>
+</html>
