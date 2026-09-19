@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P2 · Linked-List Trees</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">Prerequisite P2</p>
+  <h1>Trees Made of<em>Pointers, Not Arrays</em></h1>
+  <p class="thesis">The obvious way to store a tree in JS is <code>{ children: [...] }</code>. Fiber does not do that. It stores exactly three pointers per node — <code>child</code>, <code>sibling</code>, <code>return</code> — and that single decision is what makes Module 06's loop possible.</p>
+</header>
+
+<section class="mod">
+  <div class="analogy">
+    <p>Picture a family tree drawn the way genealogists actually draw them: no node lists "my children" as a numbered array. Instead, each person has a line to their <em>eldest</em> child, and each sibling has a line to the <em>next</em> sibling over. To find "all of someone's children," you don't read a list — you walk: go to the eldest child, then keep walking sideways through siblings until the line runs out.</p>
+    <p>It's more steps per lookup. But every node now has a fixed, tiny, predictable shape — exactly three pointers — no matter how many children it has. A node with one child and a node with nine children are structurally identical to inspect.</p>
+  </div>
+
+  <div class="spec">
+    <p>A fiber-shaped node:</p>
+    <pre><code>{
+  <span class="y">child</span>:   <span class="c">// first child, or null</span>
+  <span class="y">sibling</span>: <span class="c">// next sibling (same parent), or null</span>
+  <span class="y">return</span>:  <span class="c">// parent, or null</span>
+}</code></pre>
+    <p>To visit every child of a node, you don't index an array — you follow <code>child</code>, then keep following <code>sibling</code> until you hit <code>null</code>:</p>
+    <pre><code><span class="c">function forEachChild(node, fn) {
+  let n = node.child;
+  while (n !== null) {
+    fn(n);
+    n = n.sibling;
+  }
+}</span></code></pre>
+  </div>
+
+  <div class="io">
+    <span class="lab">Live — a real tree, built and traversed with only child/sibling/return</span>
+    <pre id="out">running…</pre>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Why this course cares</span>
+    <p>Module 03 builds this shape. Module 06's work loop needs it specifically because a loop that walks "down, then across, then up" needs somewhere to store "where do I go next" that isn't the call stack — and <code>return</code> is exactly that: an explicit, inspectable "parent" pointer standing in for what a recursive call's stack frame would normally remember implicitly.</p>
+  </div>
+</section>
+
+<div class="colophon">
+  <p><a href="../prerequisites.html">← Prerequisites index</a></p>
+</div>
+
+</div>
+<script>
+function node(name){ return { name, child: null, sibling: null, return: null }; }
+function appendChild(parent, child){
+  child.return = parent;
+  if (!parent.child) { parent.child = child; return; }
+  let last = parent.child;
+  while (last.sibling) last = last.sibling;
+  last.sibling = child;
+}
+// Build:  A
+//        / \
+//       B   C
+//       |
+//       D
+const A = node('A'), B = node('B'), C = node('C'), D = node('D');
+appendChild(A, B); appendChild(A, C); appendChild(B, D);
+
+function forEachChild(n, fn){ let c = n.child; while (c) { fn(c); c = c.sibling; } }
+
+const lines = [];
+lines.push('A.child.name        → ' + A.child.name);
+lines.push('A.child.sibling.name→ ' + A.child.sibling.name);
+lines.push('B.child.name        → ' + B.child.name);
+lines.push('D.return.name       → ' + D.return.name);
+const kids = [];
+forEachChild(A, n => kids.push(n.name));
+lines.push("forEachChild(A) → [" + kids.join(', ') + "]");
+document.getElementById('out').textContent = lines.join('\n');
+</script>
+</body>
+</html>

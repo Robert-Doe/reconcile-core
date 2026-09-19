@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research Track — Reconciliation & the CSR XSS Frontier</title>
+<link rel="stylesheet" href="../assets/lab.css">
+<style>:root{--accent:#f5c842;--accent-2:#38bdf8}</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/">◂ Main lab home</a>
+  <a href="track_a_dom/index.html">Track A ▸</a>
+  <a href="react-lab/">React lab ▸</a>
+</nav>
+
+<p class="kicker">Research companion · PhD-level</p>
+<h1>Reconciliation, Parsing &amp; the CSR XSS Frontier</h1>
+<p class="lead">The 19-module course taught you to <em>attack</em>. This track
+teaches you to understand the machine so completely that you can find where XSS
+survives <strong>even a correct framework's escaping</strong> — and then design a
+defense that holds by construction.</p>
+
+<div class="warn">
+<strong>Read this first.</strong> This is deliberately deep. If a section feels
+dense, that's the point — it's the PhD layer. Every track is a Head First
+publication (with <em>Brain Power</em> prompts and <em>Sharpen your pencil</em>
+labs) sitting on top of spec-level rigor, and every track ships something you can
+<strong>run</strong>.
+</div>
+
+<h2>The thesis this track builds toward</h2>
+<div class="card">
+<p style="font-size:1.1rem;text-align:center;color:#fff">
+React escapes text and attributes by default — <em>and XSS still happens.</em><br>
+<strong>Why?</strong> And what single defense closes all the reasons at once?
+</p>
+</div>
+<p>Four families of answer, one per colour below. The tracks build them from the
+bytes up.</p>
+
+<h2>The six tracks</h2>
+
+<div class="card" style="border-left:4px solid #38bdf8">
+<h3 style="color:#38bdf8;margin-top:0">Track A — DOM structure &amp; the inheritance graph</h3>
+<p>Why a sink like <code>innerHTML</code> lives on <code>Element</code> but not
+<code>Text</code>; how WebIDL mixins scatter <code>insertAdjacentHTML</code>/<code>append</code>/<code>setAttribute</code>
+across interfaces; DOM clobbering via live collections; Shadow DOM's composed
+tree. Ends in a <strong>trusted-boundary map</strong> of every HTML/URL/script
+sink and where it's inherited from.</p>
+<p><a href="track_a_dom/index.html">▶ Open Track A</a> — A1–A5, live inheritance &amp; sink explorer.</p>
+</div>
+
+<div class="card" style="border-left:4px solid #fb923c">
+<h3 style="color:#fb923c;margin-top:0">Track B — Parsing: bytes → tree</h3>
+<p>Encoding sniffing &amp; charset confusion; the tokenizer state machine; tree
+construction (stack of open elements, foster parenting, the adoption agency);
+foreign content; fragment parsing contexts; and the serializer. The payoff:
+<strong>serialize→reparse is not idempotent</strong> — the root of mXSS.</p>
+<p><a href="track_b_parsing/index.html">▶ Open Track B</a> — B1–B6, tokenizer + round-trip lab.</p>
+</div>
+
+<div class="card" style="border-left:4px solid #a78bfa">
+<h3 style="color:#a78bfa;margin-top:0">Track C — The background/speculative pipeline</h3>
+<p>The preload scanner that races ahead of the main parser; resource hints
+(<code>preload</code>/<code>prefetch</code>/<code>preconnect</code>) and 103
+Early Hints; the Speculation Rules API; script scheduling and
+<code>document.write</code> reentrancy; and where CSP enforcement sits relative
+to speculative fetches. <strong>Injected markup acts before your JS runs.</strong></p>
+<p><a href="track_c_speculative/index.html">▶ Open Track C</a> — C1–C5, with lab-server endpoints.</p>
+</div>
+
+<div class="card" style="border-left:4px solid #2dd4bf">
+<h3 style="color:#2dd4bf;margin-top:0">Track D — React internals: Fiber &amp; Reconciliation</h3>
+<p>Element→Fiber, <code>alternate</code> double-buffering, the diffing
+heuristics, render vs. commit phases, concurrent lanes/Suspense, the
+<code>react-dom</code> host config (attribute vs. property routing, event
+delegation), and SSR hydration. Where in the reconciler a sink is actually
+written — the interception point Track F targets.</p>
+<p><a href="track_d_fiber/index.html">▶ Open Track D</a> — D1–D5, mini-reconciler visualizer.</p>
+</div>
+
+<div class="card" style="border-left:4px solid #f87171">
+<h3 style="color:#f87171;margin-top:0">Track E — React's XSS surface</h3>
+<p>The exhaustive enumeration: <code>dangerouslySetInnerHTML</code>; the limits
+of auto-escaping (<code>javascript:</code> URLs, <code>style</code>,
+<code>srcDoc</code>, <code>on*</code> via spread); prop-spread &amp; ref
+smuggling; SSR JSON-in-<code>&lt;script&gt;</code> breakout
+(<code>__NEXT_DATA__</code>); ecosystem sinks; and mXSS inside
+<code>dangerouslySetInnerHTML</code>. <strong>Runnable React app.</strong></p>
+<p><a href="track_e_react_xss/index.html">▶ Open Track E</a> — E1–E6, drives the React lab.</p>
+</div>
+
+<div class="card" style="border-left:4px solid #4ade80">
+<h3 style="color:#4ade80;margin-top:0">Track F — Designing the in-browser fallback (the payoff)</h3>
+<p>Threat model &amp; invariants; Trusted Types wired through React's host
+config; the native Sanitizer API + DOMPurify polyfill with mXSS-resistant config;
+interception architecture (monkey-patch vs. host-config shim vs. SW/CSP); strict
+nonce CSP as defense-in-depth; and a <strong>differential-testing evaluation
+harness</strong> with PhD-grade metrics.</p>
+<p><a href="track_f_fallback/index.html">▶ Open Track F</a> — F1–F6, fallback + evaluation rig.</p>
+</div>
+
+<div class="card" style="border-left:4px solid #f5c842">
+<h3 style="color:#f5c842;margin-top:0">Deep-dive — Data, CDATA, RCDATA &amp; PCDATA (content models)</h3>
+<p>A Track B companion on the four content models that decide whether your
+<code>&lt;script&gt;</code> is a tag or text, whether entities decode, and where
+sanitizers and browsers disagree. Inspired by Dennis Snell's article; six pages
+(one per model + security + a live playground). This is the parse-differential
+theory that underpins mXSS.</p>
+<p><a href="content_models/index.html">▶ Open the Content Models module</a> — 8 pages (Head First: a "two dials" mental model, fireside chats, case-file scenarios, a cheat-sheet + 12-question exam), live classifier &amp; break-out tester.</p>
+</div>
+
+<div class="card" style="border-left:4px solid #38bdf8">
+<h3 style="color:#38bdf8;margin-top:0">Deep-dive — Content Categories (metadata / flow / phrasing / …)</h3>
+<p>The <em>other</em> meaning of "content model": the HTML5 spec's content
+<strong>categories</strong> that decide which elements may contain which
+(metadata, flow, sectioning, heading, phrasing, embedded, interactive),
+transparent content models, and the formal definition of a paragraph. From the
+HTML5 (2011 WD) spec. Seven pages with a live element categorizer, an Euler
+diagram, a derive-from-parent demo, and a paragraph finder — and it maps directly
+onto how a sanitizer allowlist should be designed.</p>
+<p><a href="content_categories/index.html">▶ Open the Content Categories module</a> — 7 pages, live categorizer + paragraph finder.</p>
+</div>
+
+<h2>Runnable artifacts at a glance</h2>
+<table>
+<thead><tr><th>What</th><th>How to run</th><th>Needs a build?</th></tr></thead>
+<tbody>
+<tr><td>Tracks A–D live demos</td><td><code>python lab_server.py</code> → <code>/research/</code></td><td>No — real browser APIs</td></tr>
+<tr><td>Differential mXSS harness</td><td>open <a href="harness/differential_harness.html">harness/differential_harness.html</a></td><td>No</td></tr>
+<tr><td>React vuln + fallback lab</td><td><code>cd react-lab &amp;&amp; npm install &amp;&amp; npm run dev</code></td><td>Yes (Vite)</td></tr>
+</tbody>
+</table>
+
+<h2>Suggested reading order</h2>
+<ol>
+<li><strong>A + B</strong> — the foundation. You cannot reason about mXSS or
+sinks without the inheritance graph and the parser.</li>
+<li><strong>C</strong> — timing/speculation, the part everyone forgets.</li>
+<li><strong>D</strong> — how React actually mutates the DOM (the interception
+point).</li>
+<li><strong>E</strong> — every place React's escaping leaks. Run the React
+lab.</li>
+<li><strong>F</strong> — build and evaluate the defense. This is your thesis
+core.</li>
+</ol>
+
+<footer>
+Research companion to the 19-module XSS course · Head First publications over
+spec-level rigor · everything runnable, localhost-only.
+</footer>
+</body>
+</html>

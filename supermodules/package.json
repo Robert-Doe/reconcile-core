@@ -1,0 +1,6 @@
+{
+  "name": "react-reconciliation-supermodules",
+  "private": true,
+  "type": "module",
+  "description": "Node-runnable verification scripts for the React Reconciliation from Scratch course. Not a build step for the engine itself — every engine file also runs unmodified in a browser via <script type=module>."
+}

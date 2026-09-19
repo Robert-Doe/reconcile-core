@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>React Reconciliation from Scratch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">A code-first course — build a real reconciler, then check it against real React</p>
+  <h1>React Reconciliation<em>from Scratch</em></h1>
+  <p class="thesis">Two tracks. Track 1: build a real, working mini-reconciler — elements, fibers, double buffering, the work loop, diffing, bailouts, the commit, hooks — verified line-by-line against real <code>react@18.3.1</code>/<code>react-dom@18.3.1</code>. Track 2: read the real engine, using what you built as the map.</p>
+
+  <div class="therule">
+    <span class="lbl">Start here</span>
+    <p><a href="prerequisites.html" style="color:var(--mark)">Prerequisites</a> (7 foundational primitives, each with a live demo) → <a href="module_01_elements/tutorial.html" style="color:var(--mark)">Module 01</a>. See <a href="ROADMAP.md" style="color:var(--mark)">ROADMAP.md</a> for recommended stopping points if you don't need the whole course.</p>
+  </div>
+</header>
+
+<section class="mod">
+  <div class="modhead"><span class="modnum">T1</span><h2>Track 1 — The Engine</h2></div>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>#</th><th>Module</th><th>Tutorial</th><th>Source + tests</th></tr></thead>
+    <tbody>
+      <tr><td>01</td><td>createElement &amp; the Element Shape</td><td><a href="module_01_elements/tutorial.html">tutorial</a></td><td><a href="module_01_elements/">folder</a></td></tr>
+      <tr><td>02</td><td>JSX Desugaring by Hand</td><td><a href="module_02_jsx_desugar/tutorial.html">tutorial</a></td><td><a href="module_02_jsx_desugar/">folder</a></td></tr>
+      <tr><td>03</td><td>The Fiber Node &amp; Linked-List Tree</td><td><a href="module_03_fiber_node/tutorial.html">tutorial</a></td><td><a href="module_03_fiber_node/">folder</a></td></tr>
+      <tr><td>04</td><td>Mount — Element Tree to Fiber Tree</td><td><a href="module_04_mount/tutorial.html">tutorial</a></td><td><a href="module_04_mount/">folder</a></td></tr>
+      <tr><td>05</td><td>Double Buffering</td><td><a href="module_05_double_buffer/tutorial.html">tutorial</a></td><td><a href="module_05_double_buffer/">folder</a></td></tr>
+      <tr><td>06</td><td>The Unit-of-Work Loop</td><td><a href="module_06_work_loop/tutorial.html">tutorial</a></td><td><a href="module_06_work_loop/">folder</a></td></tr>
+      <tr><td>07</td><td>Yielding to the Browser</td><td><a href="module_07_yielding/tutorial.html">tutorial</a></td><td><a href="module_07_yielding/">folder</a></td></tr>
+      <tr><td>08</td><td>The Single-Child Fast Path</td><td><a href="module_08_single_child/tutorial.html">tutorial</a></td><td><a href="module_08_single_child/">folder</a></td></tr>
+      <tr><td>09</td><td>Keyed List Diffing</td><td><a href="module_09_keyed_diff/tutorial.html">tutorial</a></td><td><a href="module_09_keyed_diff/">folder</a></td></tr>
+      <tr><td>10</td><td>Bailouts &amp; Memoization</td><td><a href="module_10_bailouts/tutorial.html">tutorial</a></td><td><a href="module_10_bailouts/">folder</a></td></tr>
+      <tr><td>11</td><td>The Effect List</td><td><a href="module_11_effect_list/tutorial.html">tutorial</a></td><td><a href="module_11_effect_list/">folder</a></td></tr>
+      <tr><td>12</td><td>The Commit — Real DOM Calls</td><td><a href="module_12_commit/tutorial.html">tutorial</a></td><td><a href="module_12_commit/">folder</a> · <a href="module_12_commit/demo.html">live demo</a></td></tr>
+      <tr><td>13</td><td>Hooks as a Linked List on the Fiber</td><td><a href="module_13_hooks/tutorial.html">tutorial</a></td><td><a href="module_13_hooks/">folder</a></td></tr>
+      <tr><td>14</td><td>Capstone — The Full Loop, End to End</td><td><a href="module_14_capstone/tutorial.html">tutorial</a></td><td><a href="module_14_capstone/">folder</a> · <a href="module_14_capstone/demo.html">live demo</a></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="mod">
+  <div class="modhead"><span class="modnum">T2</span><h2>Track 2 — Reading the Real Engine</h2></div>
+  <p>Uses actual <code>react</code>/<code>react-dom</code> (already installed in <code>research_reconciliation/react-lab</code>) to check every Track 1 claim against the real, un-simplified source. See <a href="ROADMAP.md">ROADMAP.md</a> for the six-module list (A1–A6).</p>
+</section>
+
+<div class="colophon">
+  <h3>Reference</h3>
+  <p><a href="ROADMAP.md">ROADMAP.md</a> (full module table + recommended stopping points) · <a href="GLOSSARY.md">GLOSSARY.md</a> (every term, alphabetical, tagged by first-seen module) · <a href="prerequisites.html">Prerequisites</a></p>
+</div>
+
+</div>
+</body>
+</html>

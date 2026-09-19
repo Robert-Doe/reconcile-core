@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P6 · The Event Loop &amp; Yielding</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">Prerequisite P6</p>
+  <h1>Nobody Interrupts<em>Your Code For You</em></h1>
+  <p class="thesis">JavaScript is single-threaded and <b>run-to-completion</b>: once a function starts, nothing else runs until it returns — not a click handler, not a repaint, not another timer. "Pausing" a long computation is never the browser cutting in; it's <em>you</em>, voluntarily, returning early and asking to be called back.</p>
+</header>
+
+<section class="mod">
+  <div class="analogy">
+    <p>Imagine one cashier at one register, and a single-file line of tasks: "ring up this customer," "restock this shelf," "answer this phone call." The cashier will finish whichever task they're holding, completely, no matter how long it takes, before glancing at the line again. If "restock this shelf" actually means restocking a warehouse, the register stays closed the entire time — <em>unless</em> the cashier chooses to stop restocking early, put a bookmark on the shelf, and say "next in line," planning to come back to the shelf later.</p>
+    <p>That bookmark-and-"next in line" move is yielding. Nothing forces the cashier to do it. If they never do, the line simply waits.</p>
+  </div>
+
+  <div class="spec">
+    <p>A function that yields cooperatively: do a chunk of work, then hand control back via a callback that the browser will get around to — instead of looping straight through to the end.</p>
+    <pre><code><span class="c">function doChunk(state) {
+  const deadline = performance.now() + 5; <span class="c">// budget: 5ms</span>
+  while (state.i < state.total && performance.now() < deadline) {
+    state.result += state.i;
+    state.i++;
+  }
+  if (state.i < state.total) {
+    setTimeout(() => doChunk(state)); <span class="c">// yield: ask to resume later</span>
+  } else {
+    state.done(state.result);
+  }
+}</span></code></pre>
+    <p>Real React uses <code>MessageChannel</code> (not <code>setTimeout</code>) for the callback, because it fires sooner and more reliably — but the shape is identical: do work, check a deadline, and if not finished, <em>schedule a continuation and return</em>, rather than looping to completion.</p>
+  </div>
+
+  <div class="io">
+    <span class="lab">Live — a deliberately slow loop, chunked; watch the counter above it keep moving between chunks</span>
+    <pre id="out">click "Run chunked work" below</pre>
+    <button id="run" style="font-family:var(--mono);font-size:13px;padding:8px 14px;border:1px solid var(--ink);background:var(--card);border-radius:2px;cursor:pointer">Run chunked work (5,000,000 additions, 5ms budget per chunk)</button>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Why this course cares</span>
+    <p>Module 06 builds a work loop that visits fiber nodes one at a time. Module 07 does nothing more than wrap that loop in exactly this pattern: run until a deadline, then <code>return</code> (not <code>break</code> — actually exit the function) and reschedule. The explicit "current node" pointer from P3 is what makes the resume possible — there's a real variable holding "where I left off" for the continuation to pick back up.</p>
+  </div>
+</section>
+
+<div class="colophon">
+  <p><a href="../prerequisites.html">← Prerequisites index</a></p>
+</div>
+
+</div>
+<script>
+const out = document.getElementById('out');
+document.getElementById('run').addEventListener('click', () => {
+  const state = { i: 0, total: 5_000_000, result: 0, chunks: 0, done(r){
+    out.textContent += '\n\nDONE. result=' + r + '  chunks used=' + state.chunks;
+  }};
+  const started = performance.now();
+  function doChunk() {
+    state.chunks++;
+    const deadline = performance.now() + 5;
+    let n = 0;
+    while (state.i < state.total && performance.now() < deadline) {
+      state.result += state.i;
+      state.i++;
+      n++;
+    }
+    out.textContent = 'chunk #' + state.chunks + ': did ' + n.toLocaleString() +
+      ' additions, i now at ' + state.i.toLocaleString() + '/' + state.total.toLocaleString() +
+      '  (elapsed ' + Math.round(performance.now()-started) + 'ms)';
+    if (state.i < state.total) setTimeout(doChunk);
+    else state.done(state.result);
+  }
+  doChunk();
+});
+</script>
+</body>
+</html>

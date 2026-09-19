@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P7 · What "After Bundling" Means</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">Prerequisite P7</p>
+  <h1><em>import React</em>Resolves to a File</h1>
+  <p class="thesis">You asked, back in this course's scoping conversation, to start "from the React library after bundling." This is what that phrase cashes out to: there is no library at runtime, only files a bundler picked.</p>
+</header>
+
+<section class="mod">
+  <div class="analogy">
+    <p>A restaurant menu says "the chef's sauce." That's the API — a name you can order by. It does not tell you the sauce is, this week, a specific jar from a specific supplier, chosen by the kitchen manager before service even started, and every plate tonight uses that same jar. Next month, service might resolve "the chef's sauce" to a different jar entirely. <code>import React from 'react'</code> is the menu item. The bundler is the kitchen manager, deciding — once, before your code ever runs — exactly which file that name points to.</p>
+  </div>
+
+  <div class="spec">
+    <p>This is not hypothetical for this repo. <code>research_reconciliation/react-lab</code> has React 18.3.1 actually installed. Here is the real file <code>node_modules/react/index.js</code> resolves to, byte for byte:</p>
+    <pre><code><span class="c">'use strict';
+
+if (process.env.NODE_ENV === 'production') {
+  module.exports = require('./cjs/react.production.min.js');
+} else {
+  module.exports = require('./cjs/react.development.js');
+}</span></code></pre>
+    <p>That's the entire "React library" your <code>import React from 'react'</code> statement resolves to, at the top level. It is a four-line file whose only job is picking between two <em>other</em> files based on one environment variable. Vite (this repo's bundler) reads <code>package.json</code>'s <code>"main"</code> field to even find this file in the first place — there's no special-casing for React; it's the same module resolution any npm package gets.</p>
+    <p>The real work lives inside whichever of those two files gets required — that's where <code>createElement</code>, <code>useState</code>, and every other export this course examines actually live. "After bundling" means: by the time your code runs, all of that has already been flattened into one JS bundle, and <code>React.createElement</code> is just a property read off a plain object, like any other.</p>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Watch it</span>
+    <p><code>react</code> and <code>react-dom</code> are two separate packages for a reason this course cares about a great deal: <code>react</code> defines <em>what</em> to render (elements, hooks, the reconciler's data model), and <code>react-dom</code> defines <em>where</em> — the host config that knows what a real browser DOM node is and how to create/mutate one. Module 12 is the exact seam between them: everything before it is renderer-agnostic; everything in it is DOM-specific.</p>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Why this course cares</span>
+    <p>Module 01 starts by writing <code>createElement</code> yourself, in a plain <code>.js</code> file, with no build step. The point of this prerequisite is so that choice doesn't feel like a simplification you're being asked to accept on faith — it's the literal same kind of file real React ships, just without the two-file production/development split.</p>
+  </div>
+</section>
+
+<div class="colophon">
+  <p><a href="../prerequisites.html">← Prerequisites index</a></p>
+  <p style="margin-top:8px">Source verified directly from <code>research_reconciliation/react-lab/node_modules/react/index.js</code> and its <code>package.json</code> (<code>"version": "18.3.1"</code>) in this repository, 2026-08-01.</p>
+</div>
+
+</div>
+</body>
+</html>

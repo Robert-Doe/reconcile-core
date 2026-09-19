@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P1 · Reference Equality</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">Prerequisite P1</p>
+  <h1>Reference<em>Equality</em></h1>
+  <p class="thesis">Every diffing algorithm in this course eventually asks some version of "is this the same thing as last time?" JavaScript answers that question by <b>identity</b>, not by contents — and the entire course depends on you never confusing the two.</p>
+</header>
+
+<section class="mod">
+  <div class="analogy">
+    <p>Two envelopes can hold identical letters — same words, same paper, same handwriting — and still be <em>two envelopes</em>. If I ask "is this the envelope I gave you yesterday?", the answer is about which physical envelope is in your hand, not whether the words inside match.</p>
+    <p><code>===</code> on objects, arrays, and functions asks the envelope question. It never reads what's inside.</p>
+  </div>
+
+  <div class="spec">
+    <p><code>===</code> between two non-primitive values (object, array, function) is <strong>true</strong> only when both sides are the exact same reference in memory. Contents are irrelevant.</p>
+    <pre><code><span class="c">// two different objects, same shape and values</span>
+{} === {}                    <span class="c">// → false</span>
+[1,2,3] === [1,2,3]          <span class="c">// → false</span>
+
+<span class="c">// same object, two names for it</span>
+const a = { x: 1 };
+const b = a;
+a === b                      <span class="c">// → true</span></code></pre>
+  </div>
+
+  <div class="io">
+    <span class="lab">Live — actually executed by your browser right now</span>
+    <pre id="out">running…</pre>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Why this course cares</span>
+    <p>Module 09's keyed diffing has to decide "is this array item the same logical thing as an item from last render?" It cannot use <code>===</code> on the raw data (a new object is built every render). That's the entire reason <strong>keys</strong> exist — a key is a stand-in identity you supply, because JS's own identity check (reference equality) would always say "no, never the same," even when nothing meaningful changed. Module 10's bailouts go the other direction: they use reference equality <em>on purpose</em>, to mean "the caller didn't even try to build a new object, so skip the work."</p>
+  </div>
+</section>
+
+<div class="colophon">
+  <p><a href="../prerequisites.html">← Prerequisites index</a></p>
+</div>
+
+</div>
+<script>
+const out = document.getElementById('out');
+const lines = [];
+lines.push('{} === {}                 → ' + ({} === {}));
+lines.push('[1,2,3] === [1,2,3]       → ' + ([1,2,3] === [1,2,3]));
+const a = { x: 1 }; const b = a;
+lines.push('const b = a; a === b     → ' + (a === b));
+const arr = [1,2,3];
+lines.push('arr === arr.slice()      → ' + (arr === arr.slice()));
+out.textContent = lines.join('\n');
+</script>
+</body>
+</html>

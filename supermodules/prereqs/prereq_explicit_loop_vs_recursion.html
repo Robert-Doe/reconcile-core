@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P3 · Explicit Loop vs. Recursion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">Prerequisite P3</p>
+  <h1>Trading the Call Stack<em>for a Variable You Control</em></h1>
+  <p class="thesis">A recursive tree-walk is easy to write and impossible to pause. An explicit loop over a "current node" variable is more code — and it's the only version you can stop in the middle of and resume five milliseconds later.</p>
+</header>
+
+<section class="mod">
+  <div class="analogy">
+    <p>Recursion is like reading a book by saying "I'll finish this paragraph, but first let me go read this footnote — and if <em>that</em> footnote has a footnote, I'll go read that one first too." Your place in the outer paragraph is remembered automatically, by the stack of "things I still need to get back to." You never manage that stack yourself — but you also can't hand it to someone else, photograph it, or reconstruct it from outside.</p>
+    <p>An explicit loop is the same reading task done with a bookmark. You keep one visible object — "where I am right now" — and a rule for "what's next." Anyone can look at the bookmark. Anyone can swap it out, save it, and put a different bookmark in later. That's the entire trick behind pausing work.</p>
+  </div>
+
+  <div class="spec">
+    <p>Same tree walk, two ways. Both visit every node depth-first, parent before children:</p>
+    <pre><code><span class="c">// Recursive — the call stack IS the "where am I" state</span>
+function walkRecursive(node, visit) {
+  if (!node) return;
+  visit(node);
+  walkRecursive(node.child, visit);
+  walkRecursive(node.sibling, visit);
+}
+
+<span class="c">// Explicit loop — "where am I" is one variable: next</span>
+function walkLoop(root, visit) {
+  let next = root;
+  while (next !== null) {
+    visit(next);
+    if (next.child) { next = next.child; continue; }
+    let n = next;
+    while (n !== null && !n.sibling) n = n.return;
+    next = n ? n.sibling : null;
+  }
+}</code></pre>
+    <p>The loop version's <code>next</code> is not incidental — it is the <em>entire</em> resumability story. Module 07 pauses the loop by simply returning from the function without clearing <code>next</code>, and resumes it later by re-entering the same <code>while</code> with <code>next</code> unchanged.</p>
+  </div>
+
+  <div class="io">
+    <span class="lab">Live — both walkers run on the same tree; outputs are compared, not asserted</span>
+    <pre id="out">running…</pre>
+  </div>
+
+  <div class="callout watch">
+    <span class="ct">Watch it</span>
+    <p>The loop version's "walk back up looking for an unvisited sibling" step is doing exactly what returning from a recursive call does automatically. Nothing is skipped — it's the same work, just relocated from the JS engine's hidden call stack to your own visible <code>while</code>.</p>
+  </div>
+</section>
+
+<div class="colophon">
+  <p><a href="../prerequisites.html">← Prerequisites index</a></p>
+</div>
+
+</div>
+<script>
+function node(name){ return { name, child: null, sibling: null, return: null }; }
+function appendChild(parent, child){
+  child.return = parent;
+  if (!parent.child) { parent.child = child; return; }
+  let last = parent.child;
+  while (last.sibling) last = last.sibling;
+  last.sibling = child;
+}
+const A = node('A'), B = node('B'), C = node('C'), D = node('D'), E = node('E');
+appendChild(A, B); appendChild(A, C); appendChild(B, D); appendChild(B, E);
+
+function walkRecursive(n, visit){
+  if (!n) return;
+  visit(n);
+  walkRecursive(n.child, visit);
+  walkRecursive(n.sibling, visit);
+}
+function walkLoop(root, visit){
+  let next = root;
+  while (next !== null) {
+    visit(next);
+    if (next.child) { next = next.child; continue; }
+    let n = next;
+    while (n !== null && !n.sibling) n = n.return;
+    next = n ? n.sibling : null;
+  }
+}
+
+const rec = []; walkRecursive(A, n => rec.push(n.name));
+const loop = []; walkLoop(A, n => loop.push(n.name));
+
+const lines = [];
+lines.push('walkRecursive(A) → [' + rec.join(', ') + ']');
+lines.push('walkLoop(A)      → [' + loop.join(', ') + ']');
+lines.push('identical order? → ' + (JSON.stringify(rec) === JSON.stringify(loop)));
+document.getElementById('out').textContent = lines.join('\n');
+</script>
+</body>
+</html>

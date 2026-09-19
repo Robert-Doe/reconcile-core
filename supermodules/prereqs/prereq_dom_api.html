@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P4 · The Real DOM Mutation API</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">Prerequisite P4</p>
+  <h1>Three Calls<em>Move Every Pixel</em></h1>
+  <p class="thesis">Everything this entire course builds — elements, fibers, diffs, effect lists — exists to answer one question: <em>which arguments do I pass to <code>appendChild</code>, <code>insertBefore</code>, and <code>removeChild</code>, and in what order?</em> Nothing else changes what a browser paints.</p>
+</header>
+
+<section class="mod">
+  <div class="analogy">
+    <p>Think of the real DOM as a stage, and these three calls as the only three things a stagehand is physically allowed to do: bring a prop on and set it down last-in-line, bring a prop on and set it down <em>in front of</em> a named prop already there, or carry a prop off. Every director's note, every rewritten scene, every clever bit of blocking — all of it eventually reduces to some sequence of those three moves. The rest of this course is the director's job (deciding what should change); the DOM API is the stagehand's job (making the change happen).</p>
+  </div>
+
+  <div class="spec">
+    <p>The three mutation primitives, as actually specified in the DOM Standard:</p>
+    <ul>
+      <li><code>parent.appendChild(node)</code> — insert <code>node</code> as the last child of <code>parent</code>.</li>
+      <li><code>parent.insertBefore(node, referenceNode)</code> — insert <code>node</code> immediately before <code>referenceNode</code> (or at the end, if <code>referenceNode</code> is <code>null</code> — which makes it a strict superset of <code>appendChild</code>).</li>
+      <li><code>parent.removeChild(node)</code> — detach <code>node</code>.</li>
+    </ul>
+    <p>Reading/writing text and attributes (<code>textContent</code>, <code>setAttribute</code>) are the same category of primitive — "change one visible fact about a node already in the tree" — but they don't move anything, so this course treats them separately in Module 12.</p>
+  </div>
+
+  <div class="io">
+    <span class="lab">Live — a real element is created and inserted into this actual page, right now, below</span>
+    <pre id="out">running…</pre>
+    <div id="stage" style="background:#fff;border:1px solid var(--rule);border-radius:2px;padding:14px 18px;font-family:var(--mono);font-size:13px"></div>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">Why this course cares</span>
+    <p>React's entire reconciler is, mechanically, a very elaborate way of deciding <em>when to call these three functions as rarely as possible.</em> Every module from 08 onward is optimization pressure applied to that one goal: don't call <code>removeChild</code>+<code>appendChild</code> when an in-place update would produce the identical DOM for less work.</p>
+  </div>
+</section>
+
+<div class="colophon">
+  <p><a href="../prerequisites.html">← Prerequisites index</a></p>
+</div>
+
+</div>
+<script>
+const stage = document.getElementById('stage');
+const p1 = document.createElement('span'); p1.textContent = 'first ';
+const p2 = document.createElement('span'); p2.textContent = 'second ';
+const p3 = document.createElement('span'); p3.textContent = 'third';
+
+stage.appendChild(p1);                 // [first]
+stage.appendChild(p3);                 // [first, third]
+stage.insertBefore(p2, p3);            // [first, second, third]
+
+const before = stage.innerHTML;
+stage.removeChild(p1);                 // [second, third]
+const after = stage.innerHTML;
+
+document.getElementById('out').textContent =
+  'after appendChild(p1), appendChild(p3), insertBefore(p2, p3):\n  ' + before +
+  '\n\nafter removeChild(p1):\n  ' + after +
+  '\n\n(the box below is the real, live result of those calls)';
+</script>
+</body>
+</html>

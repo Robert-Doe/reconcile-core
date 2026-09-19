@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prerequisites — React Reconciliation from Scratch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">React Reconciliation from Scratch · Prerequisites layer</p>
+  <h1>Seven Things<em>Every Module Assumes</em></h1>
+  <p class="thesis">You already know JavaScript. This page is not a JS course — it is the short list of <b>mechanical primitives</b> the reconciliation modules lean on without re-explaining. If a module's diagram or code stops making sense, the fix is almost always "come back here," not "re-read the module."</p>
+
+  <div class="therule">
+    <span class="lbl">Why a separate layer instead of teaching inline</span>
+    <p>Every module tags the specific primitive it needs at the top, as a link back here. That way a module's own space is spent entirely on <span class="hi">what's new</span>, never on re-deriving something you already used three modules ago.</p>
+  </div>
+</header>
+
+<section class="mod" id="p00">
+  <div class="modhead"><span class="modnum">P</span><h2>The seven primitives</h2></div>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>#</th><th>Primitive</th><th>One-line claim</th><th>First needed by</th></tr></thead>
+    <tbody>
+      <tr><td>P1</td><td><a href="prereqs/prereq_reference_equality.html">Reference equality</a></td><td>Two objects with identical contents are still <code>!==</code> unless they're the same object</td><td>Module 01</td></tr>
+      <tr><td>P2</td><td><a href="prereqs/prereq_linked_list_tree.html">Linked-list trees</a></td><td>A tree can be fully represented with per-node pointers instead of an array-of-children field</td><td>Module 03</td></tr>
+      <tr><td>P3</td><td><a href="prereqs/prereq_explicit_loop_vs_recursion.html">Explicit loop vs. recursion</a></td><td>Any recursive traversal can be rewritten as a <code>while</code> loop over an explicit pointer, trading call-stack frames for a variable you control</td><td>Module 06</td></tr>
+      <tr><td>P4</td><td><a href="prereqs/prereq_dom_api.html">The real DOM mutation API</a></td><td><code>appendChild</code> / <code>insertBefore</code> / <code>removeChild</code> are the only three calls that change what's on screen — everything upstream is deciding <em>what arguments</em> to pass them</td><td>Module 04, fully by Module 12</td></tr>
+      <tr><td>P5</td><td><a href="prereqs/prereq_closures_call_order.html">Closures &amp; call-order state</a></td><td>A closure can read/write a variable that lives outside itself, and if that variable is chosen "by position in a sequence of calls," the calls must happen in the same order every time</td><td>Module 13</td></tr>
+      <tr><td>P6</td><td><a href="prereqs/prereq_event_loop_yielding.html">The event loop &amp; yielding</a></td><td>A long-running loop can voluntarily stop, return control to the browser, and be resumed later via a callback — the browser never interrupts your code mid-statement on its own</td><td>Module 07</td></tr>
+      <tr><td>P7</td><td><a href="prereqs/prereq_bundling_modules.html">What "after bundling" means</a></td><td><code>import React from 'react'</code> resolves, at build time, to a specific file on disk — the "library" is not magic, it's a module graph a bundler flattened</td><td>Module 01</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="callout brain">
+    <span class="ct">How to use this page</span>
+    <p>Don't read all seven now. Each module's "00 Prerequisites" section links to exactly the ones it needs, at the moment it needs them. Come here on demand.</p>
+  </div>
+</section>
+
+<div class="colophon">
+  <h3>Back to the course</h3>
+  <p><a href="ROADMAP.md">ROADMAP.md</a> · <a href="GLOSSARY.md">GLOSSARY.md</a> · <a href="module_01_elements/tutorial.html">Start at Module 01</a></p>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P5 · Closures &amp; Call-Order State</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/theme.css">
+</head>
+<body>
+<div class="sheet">
+
+<header class="masthead">
+  <p class="eyebrow">Prerequisite P5</p>
+  <h1>State That Lives<em>by Position, Not by Name</em></h1>
+  <p class="thesis">You've written closures. This is the one closure trick every hooks implementation depends on: a function can find "its" state not by a variable name, but by <b>which call this is, in order</b> — the Nth call to the Nth line finds the Nth slot.</p>
+</header>
+
+<section class="mod">
+  <div class="analogy">
+    <p>Picture a coat-check where nobody hands you a ticket with your name on it. Instead: you're the third person to walk in today, so your coat goes on hook #3. When you leave and come back tomorrow, <em>as long as you're the third person in again</em>, you get the same hook. The system never learned your name. It only ever counted arrivals.</p>
+    <p>This works perfectly — right up until one day you cut the line and become the second arrival instead of the third. Now you get someone else's coat. The system isn't broken; you broke its one assumption: <em>the order of arrivals is stable.</em></p>
+  </div>
+
+  <div class="spec">
+    <p>A minimal "hook slot by call order," built from nothing but a shared array and an index that resets each render:</p>
+    <pre><code><span class="c">let slots = [];
+let cursor = 0;
+
+function useSlot(initial) {
+  const i = cursor++;
+  if (slots[i] === undefined) slots[i] = initial;
+  return [
+    slots[i],
+    (next) => { slots[i] = next; }
+  ];
+}
+
+function render(Component) {
+  cursor = 0;           <span class="c">// reset the counter — same order every render</span>
+  return Component();
+}</span></code></pre>
+    <p><code>useSlot</code> never looks at a name. It looks at <strong>how many times it has already been called this render</strong>. That number is the entire address.</p>
+  </div>
+
+  <div class="io">
+    <span class="lab">Live — two calls to useSlot in the same order, across two renders, keep separate state correctly</span>
+    <pre id="out">running…</pre>
+  </div>
+
+  <div class="callout crazy">
+    <span class="ct">Crazy detail — this is the real reason for "no hooks in conditionals"</span>
+    <p>If a component calls <code>useSlot</code> inside an <code>if</code> that's sometimes true and sometimes false, the second render might skip call #2 entirely — so what used to be slot 3 is now read as slot 2. The rule isn't a style preference the React team invented to be strict; it's the direct, mechanical consequence of identifying state <em>by call order</em> instead of by name. Module 13 builds the real version of <code>slots</code>/<code>cursor</code> as fields on a fiber.</p>
+  </div>
+</section>
+
+<div class="colophon">
+  <p><a href="../prerequisites.html">← Prerequisites index</a></p>
+</div>
+
+</div>
+<script>
+let slots = [];
+let cursor = 0;
+function useSlot(initial) {
+  const i = cursor++;
+  if (slots[i] === undefined) slots[i] = initial;
+  return [slots[i], (next) => { slots[i] = next; }];
+}
+function renderOnce(Component) { cursor = 0; return Component(); }
+
+function Counter() {
+  const [count, setCount] = useSlot(0);
+  const [label] = useSlot('clicks');
+  return { count, label, setCount };
+}
+
+const r1 = renderOnce(Counter);
+r1.setCount(r1.count + 1);
+const r2 = renderOnce(Counter);
+r2.setCount(r2.count + 1);
+const r3 = renderOnce(Counter);
+
+const lines = [];
+lines.push('render 1 → count=' + r1.count + ', label=' + r1.label);
+lines.push('render 2 → count=' + r2.count + ', label=' + r2.label + '   (slot 0 persisted, slot 1 persisted)');
+lines.push('render 3 → count=' + r3.count + ', label=' + r3.label);
+lines.push('\nraw slots array right now → ' + JSON.stringify(slots));
+document.getElementById('out').textContent = lines.join('\n');
+</script>
+</body>
+</html>
