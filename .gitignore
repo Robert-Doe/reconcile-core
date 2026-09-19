@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.sqlite3
+
+# JS / Node (react-lab and any future builds)
+node_modules/
+dist/
+build/
+
+# Editors / tooling
+.idea/
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log

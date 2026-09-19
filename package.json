@@ -1,0 +1,17 @@
+{
+  "name": "xss-attack-defense-lab",
+  "version": "1.0.0",
+  "description": "A 19-module XSS attack & defense teaching lab. Node runtime mirror of the Flask lab. Localhost study only.",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "lab": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {},
+  "keywords": ["xss", "security", "education", "lab", "defense"],
+  "license": "MIT"
+}
