@@ -66,10 +66,9 @@ app.innerHTML = `
   <section class="hero">
     <h1>Virtual DOM <em>Diff</em> Visualizer</h1>
     <p class="tagline">
-      A from-scratch React-style fiber reconciler — real keyed diffing, real double
-      buffering, real commit phase — running live in your browser. Every badge below
-      reflects an actual <code>Fiber.flags</code> bit set by the real algorithm, not a
-      simulation of one.
+      A from-scratch React-style fiber reconciler, with keyed diffing, double
+      buffering, and a real commit phase, running live in your browser. Every badge
+      below reflects an actual <code>Fiber.flags</code> bit set by the algorithm itself.
     </p>
   </section>
 
