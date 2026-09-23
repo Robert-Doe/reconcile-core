@@ -1,8 +1,8 @@
-// Reconcile Core — Virtual DOM Diff Visualizer
+// Reconcile Core, Virtual DOM Diff Visualizer
 //
 // Every reconciliation decision shown on this page is made by the REAL,
 // unmodified engine copied verbatim from this repo's supermodules/ course
-// build (module_01 through module_14). Nothing here reimplements diffing —
+// build (module_01 through module_14). Nothing here reimplements diffing,
 // this file only calls the real `createElement`, `useState`, `mountApp`
 // (module_14_capstone/engine.js) and reads the real Fiber objects
 // (module_03_fiber_node/fiber.js) that the real keyed-diff algorithm
@@ -29,7 +29,7 @@ const initialItems = (): Item[] => [
 ];
 
 // Bridge between the native control UI (plain DOM, outside the reconciler)
-// and the real function component's internal useState — exactly the seam
+// and the real function component's internal useState, exactly the seam
 // a real React app has between "outside world" event handlers and a
 // component's own state setter.
 const bridge: { items: Item[]; setItems: ((next: Item[]) => void) | null } = {
@@ -108,7 +108,7 @@ app.innerHTML = `
       newFiber.flags |= Placement; // moved
       return lastPlacedIndex;
     }
-    return oldIndex; // stayed — raise the high-water mark
+    return oldIndex; // stayed, raise the high-water mark
   }
   newFiber.flags |= Placement; // inserted
   return lastPlacedIndex;
@@ -200,7 +200,7 @@ function applyChange(nextItems: Item[]) {
   const beforeFibers = liFibers();
 
   bridge.setItems!(nextItems);
-  // The real update() ran synchronously inside setItems above — bridge.items
+  // The real update() ran synchronously inside setItems above, bridge.items
   // now reflects the freshly re-rendered, freshly committed real fiber tree.
   const afterItems = bridge.items;
   const afterFibers = liFibers();
